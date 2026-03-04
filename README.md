@@ -1,6 +1,6 @@
 # RetentionFlow - Inprogress 
 Production-Grade Customer Churn Prediction Platform  
-Databricks • Delta Lake • TensorFlow • MLflow • Keras • Dagster • Power BI
+Databricks • Apache Spark (PySpark) • Delta Lake • TensorFlow • MLflow • Keras • Dagster • Power BI
 
 ---
 

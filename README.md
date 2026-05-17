@@ -86,14 +86,16 @@ data/raw/*.csv ──one-time loader (COPY)──┐
 ┌──────────────────────────────────────────────────────────────────┐
 │ analytics  stg_* views (silver)  →  customer_features (gold table)│
 └───────────────────────────┬──────────────────────────────────────┘
+                            ▼
+       churn_model — XGBoost, retrained nightly, registered in MLflow
                             │
-              consumed by the ML / LLM / eval services (roadmap)
+             LLM / eval services consume predictions (roadmap)
 ```
 
 - **raw** — 9 Olist tables loaded once; `synthetic` holds simulated repeat orders.
 - **analytics** — dbt-owned: staging views (silver) and the gold table `customer_features`.
 
-Dagster runs the dbt transformations as a nightly asset graph (dbt models → assets, dbt tests → asset checks). Full decisions in [`docs/adr/`](docs/adr/) and the domain glossary in [`CONTEXT.md`](CONTEXT.md).
+Dagster runs the dbt transformations and the churn-model retraining as one nightly asset graph (dbt models → assets, dbt tests → asset checks, then the model registered in MLflow). Full decisions in [`docs/adr/`](docs/adr/) and the domain glossary in [`CONTEXT.md`](CONTEXT.md).
 
 The architectural choice that matters: **the ML model's interpretability output (SHAP values) becomes structured input to the LLM's prompt.** That handoff is the project.
 
@@ -133,10 +135,21 @@ Snapshot date 2017-08-01, 180-day churn horizon.
 - **Signal**: retained customers average a 4.81 review score and 9.5-day delivery; churned customers 3.88 and 13.7 days
 - **dbt**: 8 models, 18 data tests — all passing
 
-### ML model, LLM generation, evaluation
+### ML model (measured)
 
-Not yet built. The system design is described below; measured metrics will be
-reported here as each component is implemented — see the [Roadmap](#roadmap).
+XGBoost churn classifier, trained on the gold table, registered in MLflow.
+
+- **ROC-AUC**: 0.79 test / 0.80 validation
+- **PR-AUC**: 0.94 (inflated by the ~80% churn base rate — ROC-AUC is the honest headline)
+- **Decision threshold**: 0.33 — tuned on the validation PR curve to catch ≥85% of churners
+- **Precision / Recall** (test, @0.33): 0.87 / 0.86
+- **Brier score**: 0.18
+- **Top features**: `avg_review_score`, `avg_delivery_days`, `recency_days` — the model recovers the signal the synthetic augmentation injected
+- test ≈ validation — no overfitting
+
+### LLM generation, evaluation
+
+Not yet built — see the [Roadmap](#roadmap).
 
 ---
 
@@ -161,6 +174,16 @@ dbt build --project-dir transform --profiles-dir transform   # silver views + go
 ```
 
 Explore the orchestration graph with `cd orchestration && dagster dev`.
+
+### Dashboard
+
+A React + Tailwind dashboard over dbt, Postgres, and MLflow — with a button to
+run batch scoring with the champion model:
+
+```bash
+PYTHONPATH=src uvicorn backend.api.app:app --port 8000   # FastAPI backend
+cd dashboard && npm install && npm run dev               # UI at localhost:5173
+```
 
 ## Evaluation Framework
 
@@ -214,22 +237,27 @@ Olist has almost no repeat customers (~3%), so an honest churn label is ~98% pos
 
 ```
 retention-flow/
-├── src/backend/db/         # database access — engine + config
-│   ├── loader/             # one-time CSV -> raw schema migration
-│   └── simulation/         # signal-driven synthetic repeat-order generator
+├── src/backend/
+│   ├── db/                 # database access — engine + config
+│   │   ├── loader/         # one-time CSV -> raw schema migration
+│   │   └── simulation/     # signal-driven synthetic repeat-order generator
+│   ├── ml/                 # XGBoost churn model — data prep + training
+│   └── api/                # FastAPI dashboard backend + batch scoring
 ├── transform/              # dbt project
 │   └── models/
 │       ├── staging/        # stg_* views (silver) — raw + synthetic union
 │       ├── intermediate/   # int_customer_orders (wide order table)
 │       └── marts/          # customer_features (gold table)
 ├── orchestration/          # Dagster project — dbt assets + nightly schedule
+├── dashboard/              # React + Tailwind + TypeScript dashboard (Vite)
+├── notebooks/              # EDA + experimentation (churn_xgboost.ipynb)
 ├── data/raw/               # Olist CSVs (gitignored)
 ├── docs/adr/               # Architecture decision records
 ├── CONTEXT.md              # Domain glossary
 ├── docker-compose.yml      # Local Postgres
 └── pyproject.toml
 
-Planned (see Roadmap): src/backend/{api,ml,llm,eval}
+Planned (see Roadmap): src/backend/{llm,eval}
 ```
 
 ---

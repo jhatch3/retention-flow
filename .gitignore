@@ -17,6 +17,7 @@ data/
 
 # MLflow
 mlruns/
+*.db
 
 # Dagster (local runtime / temp home)
 .tmp_dagster_home_*/

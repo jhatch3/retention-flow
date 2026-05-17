@@ -14,5 +14,7 @@ what this project demonstrates.
 
 ## Consequences
 
-- Dagster orchestrates dbt only. The one-time CSV→`raw` migration is not a
-  Dagster asset; the asset graph begins from the raw tables already in Postgres.
+- The Dagster asset graph covers the dbt models and the downstream churn-model
+  training (which registers the model in MLflow). The one-time CSV→`raw`
+  migration is deliberately excluded — the graph begins from the raw tables
+  already in Postgres.

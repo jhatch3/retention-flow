@@ -72,7 +72,7 @@ A one-time loader copies the 9 CSVs verbatim into a `raw` Postgres schema; the s
 
 ## Architecture
 
-The database is a **medallion pipeline across three Postgres schemas**, orchestrated by Dagster:
+The data pipeline is a **medallion architecture in Postgres**, orchestrated by Dagster:
 
 ```
 data/raw/*.csv ──one-time loader (COPY)──┐
@@ -86,18 +86,14 @@ data/raw/*.csv ──one-time loader (COPY)──┐
 ┌──────────────────────────────────────────────────────────────────┐
 │ analytics  stg_* views (silver)  →  customer_features (gold table)│
 └───────────────────────────┬──────────────────────────────────────┘
-              ML model reads the gold table, writes back
-                            ▼
-┌──────────────────────────────────────────────────────────────────┐
-│ serving    predictions │ SHAP values │ generated emails │ evals   │
-└──────────────────────────────────────────────────────────────────┘
+                            │
+              consumed by the ML / LLM / eval services (roadmap)
 ```
 
-- **raw** — 9 Olist tables loaded once; `synthetic` holds simulated repeat orders. Loader-owned.
+- **raw** — 9 Olist tables loaded once; `synthetic` holds simulated repeat orders.
 - **analytics** — dbt-owned: staging views (silver) and the gold table `customer_features`.
-- **serving** — Alembic-owned; the application's write model. References the gold table by natural key.
 
-Dagster runs the dbt transformations as a nightly asset graph (dbt models → assets, dbt tests → asset checks). The downstream ML / LLM / eval services consume the gold table and write into `serving`. Full decisions in [`docs/adr/`](docs/adr/) and the domain glossary in [`CONTEXT.md`](CONTEXT.md).
+Dagster runs the dbt transformations as a nightly asset graph (dbt models → assets, dbt tests → asset checks). Full decisions in [`docs/adr/`](docs/adr/) and the domain glossary in [`CONTEXT.md`](CONTEXT.md).
 
 The architectural choice that matters: **the ML model's interpretability output (SHAP values) becomes structured input to the LLM's prompt.** That handoff is the project.
 
@@ -107,10 +103,9 @@ The architectural choice that matters: **the ML model's interpretability output 
 
 | Layer | Technology | Why |
 |---|---|---|
-| Data warehouse | Postgres 16 (medallion: raw / analytics / serving) | One queryable source of truth for the whole pipeline |
+| Data warehouse | Postgres 16 (medallion: raw / analytics) | One queryable source of truth for the pipeline |
 | Transformation | dbt | SQL models with built-in tests and lineage; staging (silver) → gold |
 | Orchestration | Dagster | dbt models as observable assets; nightly scheduled runs |
-| Migrations | Alembic + SQLAlchemy | Owns the `serving` schema and ORM models |
 | ML model | XGBoost + SHAP | Industry standard for tabular classification with explainability |
 | Deep learning | DistilBERT (PyTorch + Hugging Face) | Fine-tuned for inline email quality classification |
 | LLM | Anthropic Claude (claude-opus-4-5) | Tool use API for structured output, prompt caching for cost control |
@@ -157,7 +152,6 @@ reported here as each component is implemented — see the [Roadmap](#roadmap).
 ```bash
 pip install -e .                               # backend package + db deps
 docker compose up -d                           # local Postgres 16
-alembic upgrade head                           # create the serving schema
 
 unzip data/raw_data.zip -d data/raw            # extract the 9 Olist CSVs
 
@@ -209,7 +203,7 @@ The ML→LLM handoff is the architectural core of this project. Pydantic enforce
 Both work. MLflow appears in more job postings and is open-source/self-hostable, which is the better signal for production ML engineering vs SaaS-dependent workflows.
 
 ### Why a Postgres medallion pipeline over file-based ETL?
-Holding raw, transformed, and serving data in one queryable database makes the pipeline reproducible and inspectable end to end. dbt owns the silver/gold transformations — tests and lineage for free — and Alembic owns the serving schema. See [`docs/adr/0001`](docs/adr/0001-postgres-medallion-architecture.md).
+Holding the raw and transformed data in one queryable database makes the pipeline reproducible and inspectable end to end. dbt owns the silver/gold transformations — tests and lineage for free. See [`docs/adr/0001`](docs/adr/0001-postgres-medallion-architecture.md).
 
 ### Why synthetic data augmentation?
 Olist has almost no repeat customers (~3%), so an honest churn label is ~98% positive and unlearnable. A signal-driven simulation adds repeat orders whose timing depends on real first-order experience, making churn a genuine prediction task. The dataset is presented as Olist-plus-simulation, never as raw Olist. See [`docs/adr/0004`](docs/adr/0004-synthetic-repeat-order-augmentation.md).
@@ -220,11 +214,9 @@ Olist has almost no repeat customers (~3%), so an honest churn label is ~98% pos
 
 ```
 retention-flow/
-├── src/backend/db/         # SQLAlchemy ORM + Alembic migrations (serving schema)
-│   ├── models/             # predictions, shap_values, generated_emails, eval_scores
+├── src/backend/db/         # database access — engine + config
 │   ├── loader/             # one-time CSV -> raw schema migration
-│   ├── simulation/         # signal-driven synthetic repeat-order generator
-│   └── migrations/         # Alembic
+│   └── simulation/         # signal-driven synthetic repeat-order generator
 ├── transform/              # dbt project
 │   └── models/
 │       ├── staging/        # stg_* views (silver) — raw + synthetic union
@@ -247,7 +239,7 @@ Planned (see Roadmap): src/backend/{api,ml,llm,eval}
 Decision records and the domain glossary:
 
 - [`CONTEXT.md`](CONTEXT.md) — Domain glossary: medallion layers, churn label, split
-- [`docs/adr/0001-postgres-medallion-architecture.md`](docs/adr/0001-postgres-medallion-architecture.md) — Three-schema medallion with dbt and Dagster
+- [`docs/adr/0001-postgres-medallion-architecture.md`](docs/adr/0001-postgres-medallion-architecture.md) — Postgres medallion architecture with dbt and Dagster
 - [`docs/adr/0002-future-window-churn-label.md`](docs/adr/0002-future-window-churn-label.md) — Why churn is a forward-looking label
 - [`docs/adr/0003-dagster-for-orchestration.md`](docs/adr/0003-dagster-for-orchestration.md) — Dagster over plain cron
 - [`docs/adr/0004-synthetic-repeat-order-augmentation.md`](docs/adr/0004-synthetic-repeat-order-augmentation.md) — Signal-driven synthetic repeat orders

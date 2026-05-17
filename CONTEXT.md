@@ -2,8 +2,8 @@
 
 A churn-aware retention system: it predicts customer churn from Olist
 e-commerce data, explains each prediction with SHAP, and generates grounded
-retention emails. The database is a medallion-style pipeline across three
-Postgres schemas, orchestrated nightly by Dagster.
+retention emails. The data pipeline is a medallion architecture in Postgres,
+orchestrated nightly by Dagster.
 
 ## Language
 
@@ -23,9 +23,6 @@ _Avoid_: "silver schema" — there is no separate silver schema.
 **Gold table** — `analytics.customer_features`:
 The ML-ready training table — one feature snapshot per customer, carrying the churn label and a train/test/validation split.
 _Avoid_: "training data" (ambiguous with the split), "customers" (that is the raw source table).
-
-**Serving** — `serving` schema:
-Inference outputs and audit trail: predictions, SHAP values, generated emails, eval scores. The application's write model.
 
 ### Domain terms
 
@@ -48,9 +45,7 @@ The train / test / validation assignment carried on every gold row, set by a chu
 ## Relationships
 
 - **Raw** and the **Synthetic augmentation** are unioned by the dbt **Staging** views, which are aggregated into the **Gold table**
-- A model reads the **Gold table** and writes predictions into **Serving**
 - **Dagster** orchestrates the dbt transformations on a nightly schedule
-- A **prediction** references its **feature snapshot** by natural key (`customer_unique_id` + `snapshot_date`), not a foreign key — the gold table is rebuilt by dbt
 
 ## Flagged ambiguities
 

@@ -18,5 +18,17 @@ services:
       timeout: 5s
       retries: 10
 
+  # Browser-based Postgres viewer — http://localhost:8081
+  pgweb:
+    image: sosedoff/pgweb
+    container_name: retention_flow_pgweb
+    ports:
+      - "8081:8081"
+    environment:
+      PGWEB_DATABASE_URL: postgres://postgres:postgres@postgres:5432/retention_flow?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   pgdata:

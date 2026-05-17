@@ -1,0 +1,15 @@
+# dbt connection profile. Defaults match docker-compose.yml, so `dbt run`
+# works out of the box against the local Postgres. Override with DBT_* env
+# vars when targeting another database.
+retention_flow:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('DBT_HOST', 'localhost') }}"
+      port: 5432
+      user: "{{ env_var('DBT_USER', 'postgres') }}"
+      password: "{{ env_var('DBT_PASSWORD', 'postgres') }}"
+      dbname: "{{ env_var('DBT_DBNAME', 'retention_flow') }}"
+      schema: analytics
+      threads: 4

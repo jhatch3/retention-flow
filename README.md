@@ -54,48 +54,52 @@ The result is a system where retention emails address real, customer-specific co
 
 ## Data
 
-This project uses the [Olist Brazilian E-commerce dataset](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce), which contains ~100K orders across 9 related tables. **No churn labels exist in the source data.**
+This project builds on the [Olist Brazilian E-commerce dataset](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) — ~100K orders across 9 related tables. **No churn labels exist in the source data**, and Olist is a near-pure single-purchase marketplace: only ~3% of customers ever place a second order.
 
-I define churn as **"a customer's gap since last order exceeds twice their personal historical median order interval, with a 90-day minimum floor."** This personalized definition outperforms naive global thresholds because it accounts for varying customer purchase frequencies. Full justification in [`docs/data_definition.md`](docs/data_definition.md).
+### Churn definition
 
-The ETL pipeline:
-1. Loads and validates 9 source tables (~150MB)
-2. Joins into a wide order table (~100K rows)
-3. Applies churn labeling logic per customer
-4. Engineers 30+ behavioral features (RFM, temporal patterns, review sentiment, payment diversity, seller loyalty)
-5. Outputs versioned training Parquet files
+Churn is a **future-window label**: as of a snapshot date, a customer is churned if they place no order in the following 180 days. Features use only events on or before the snapshot date, so the label is leakage-free. An earlier "gap since last order" definition was rejected — it leaks, because recency would be both a feature and (by construction) the label. See [`docs/adr/0002-future-window-churn-label.md`](docs/adr/0002-future-window-churn-label.md).
 
-Detailed pipeline implementation: [`docs/data_pipeline.md`](docs/data_pipeline.md).
+### Synthetic augmentation
+
+With only ~3% repeat customers, an honest future-window label is ~98% positive — degenerate, with no signal to learn. A one-time, **signal-driven simulation** adds synthetic repeat orders: each customer's reorder propensity is a function of their *real* first-order experience (review score, delivery speed). Churn becomes a learnable target without fabricating the relationship blindly. The training data is therefore **Olist augmented with simulation**, and metrics are reported as such. See [`docs/adr/0004-synthetic-repeat-order-augmentation.md`](docs/adr/0004-synthetic-repeat-order-augmentation.md).
+
+### Medallion pipeline
+
+A one-time loader copies the 9 CSVs verbatim into a `raw` Postgres schema; the simulation writes synthetic orders into a `synthetic` schema. dbt then transforms both — staging views (silver) feeding the gold table `customer_features`. The transformations run as a nightly Dagster asset graph.
 
 ---
 
 ## Architecture
 
+The database is a **medallion pipeline across three Postgres schemas**, orchestrated by Dagster:
+
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Data Layer (Postgres)                       │
-│ Customer features │ Predictions │ SHAP values │ Generated emails│
-└────────────────────────────────┬────────────────────────────────┘
-                                 │
-┌────────────────────────────────┴───────────────────────────────┐
-│                   FastAPI Backend (Python)                     │
-├──────────────────┬──────────────────┬──────────────────────────┤
-│   ML Service     │  LLM Service     │  Eval Service            │
-│  XGBoost +       │  Claude API +    │  DistilBERT +            │
-│  SHAP explainer  │  prompt caching  │  LLM-as-judge            │
-└──────────────────┴──────────────────┴──────────────────────────┘
-                                 │
-┌────────────────────────────────┴────────────────────────────────┐
-│              Observability + MLOps                              │
-│  MLflow registry │ Structured logs │ Cost & latency metrics     │
-└────────────────────────────────┬────────────────────────────────┘
-                                 │
-┌────────────────────────────────┴────────────────────────────────┐
-│  Docker │ AWS App Runner │ GitHub Actions CI/CD                 │
-└─────────────────────────────────────────────────────────────────┘
+data/raw/*.csv ──one-time loader (COPY)──┐
+                                         ▼
+┌──────────────────────────────────────────────────────────────────┐
+│ raw        9 Olist tables (verbatim)                              │
+│ synthetic  simulated repeat orders                                │
+└───────────────────────────┬──────────────────────────────────────┘
+              dbt staging views — clean / type / dedupe / union
+                            ▼
+┌──────────────────────────────────────────────────────────────────┐
+│ analytics  stg_* views (silver)  →  customer_features (gold table)│
+└───────────────────────────┬──────────────────────────────────────┘
+              ML model reads the gold table, writes back
+                            ▼
+┌──────────────────────────────────────────────────────────────────┐
+│ serving    predictions │ SHAP values │ generated emails │ evals   │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-The architectural choice that matters: **the ML model's interpretability output (SHAP values) becomes structured input to the LLM's prompt.** That handoff is the project. Full architecture details in [`docs/architecture.md`](docs/architecture.md).
+- **raw** — 9 Olist tables loaded once; `synthetic` holds simulated repeat orders. Loader-owned.
+- **analytics** — dbt-owned: staging views (silver) and the gold table `customer_features`.
+- **serving** — Alembic-owned; the application's write model. References the gold table by natural key.
+
+Dagster runs the dbt transformations as a nightly asset graph (dbt models → assets, dbt tests → asset checks). The downstream ML / LLM / eval services consume the gold table and write into `serving`. Full decisions in [`docs/adr/`](docs/adr/) and the domain glossary in [`CONTEXT.md`](CONTEXT.md).
+
+The architectural choice that matters: **the ML model's interpretability output (SHAP values) becomes structured input to the LLM's prompt.** That handoff is the project.
 
 ---
 
@@ -103,12 +107,14 @@ The architectural choice that matters: **the ML model's interpretability output 
 
 | Layer | Technology | Why |
 |---|---|---|
-| Data engineering | Pandas, Parquet | Standard for tabular ETL at this scale |
+| Data warehouse | Postgres 16 (medallion: raw / analytics / serving) | One queryable source of truth for the whole pipeline |
+| Transformation | dbt | SQL models with built-in tests and lineage; staging (silver) → gold |
+| Orchestration | Dagster | dbt models as observable assets; nightly scheduled runs |
+| Migrations | Alembic + SQLAlchemy | Owns the `serving` schema and ORM models |
 | ML model | XGBoost + SHAP | Industry standard for tabular classification with explainability |
 | Deep learning | DistilBERT (PyTorch + Hugging Face) | Fine-tuned for inline email quality classification |
 | LLM | Anthropic Claude (claude-opus-4-5) | Tool use API for structured output, prompt caching for cost control |
 | API framework | FastAPI + Pydantic | Type-safe contracts end-to-end, async LLM calls |
-| Database | Postgres (Supabase) | Audit trail for predictions, generated emails, and eval scores |
 | MLOps | MLflow | Model registry, experiment tracking, version control |
 | Observability | structlog | JSON-structured logs with request IDs and cost tracking |
 | Deployment | Docker + AWS App Runner | Single-service deployment without Kubernetes overhead |
@@ -120,33 +126,22 @@ Every choice is documented in [Engineering Decisions](#engineering-decisions).
 
 ## Key Results
 
-Measured on the Olist dataset with snapshot date 2017-08-01, validated against 2018 customer behavior.
+### Data pipeline (measured)
 
-### Data Pipeline
-- **Customers in training set**: ~85K (after edge case filtering)
-- **Churn rate**: ~38% (matches industry-typical e-commerce churn)
-- **Features engineered**: 32 across RFM, temporal, behavioral, geographic dimensions
-- **Pipeline runtime**: ~4 minutes end-to-end on M2 Macbook
+Snapshot date 2017-08-01, 180-day churn horizon.
 
-### ML Model
-- **AUC**: 0.84 on holdout
-- **Precision @ 0.5 threshold**: 0.76
-- **Recall @ 0.5 threshold**: 0.69
-- **Calibration (Brier score)**: 0.14
-- **Inference latency (p50 / p95)**: 8ms / 14ms
-- **Top SHAP features**: recency_days, interval_std, avg_review_score, frequency, monetary_avg
+- **Raw load**: 9 Olist tables, ~1.5M rows copied into Postgres
+- **Synthetic augmentation**: ~58K repeat orders for 35% of customers (signal-driven)
+- **Gold table**: 18,618 customer feature snapshots, ~20 behavioral features
+- **Churn rate**: 80.3% — a learnable target (a degenerate ~98% before augmentation)
+- **Split**: deterministic, churn-stratified 70 / 15 / 15 train / test / validation
+- **Signal**: retained customers average a 4.81 review score and 9.5-day delivery; churned customers 3.88 and 13.7 days
+- **dbt**: 8 models, 18 data tests — all passing
 
-### LLM Email Generation
-- **Average latency (p50 / p95)**: 1.8s / 3.2s
-- **Cost per email (with prompt caching)**: $0.004
-- **Cost per email (without caching)**: $0.011 (63% savings from caching)
-- **Cache hit rate on system prompt**: 94%
+### ML model, LLM generation, evaluation
 
-### Two-Tier Evaluation
-- **DistilBERT classifier F1** (vs LLM-as-judge labels): 0.84
-- **DistilBERT inference latency**: 22ms
-- **Agreement rate (DistilBERT vs Claude judge)**: 89%
-- **Systematic disagreement patterns**: documented in [`docs/eval_analysis.md`](docs/eval_analysis.md)
+Not yet built. The system design is described below; measured metrics will be
+reported here as each component is implemented — see the [Roadmap](#roadmap).
 
 ---
 
@@ -154,14 +149,26 @@ Measured on the Olist dataset with snapshot date 2017-08-01, validated against 2
 
 ### Prerequisites
 - Python 3.11+
-- Postgres 15+ (or a Supabase project)
-- Docker (for containerized deployment)
-- Anthropic API key
-- Olist dataset from Kaggle (free download, ~150MB)
+- Docker (for local Postgres)
+- The Olist dataset zip at `data/raw_data.zip` (free from Kaggle, ~45 MB)
 
-### Install
+### Run the data pipeline
 
+```bash
+pip install -e .                               # backend package + db deps
+docker compose up -d                           # local Postgres 16
+alembic upgrade head                           # create the serving schema
 
+unzip data/raw_data.zip -d data/raw            # extract the 9 Olist CSVs
+
+PYTHONPATH=src python -m backend.db.loader.raw_loader         # CSVs -> raw schema
+PYTHONPATH=src python -m backend.db.simulation.repeat_orders  # synthetic repeat orders
+dbt build --project-dir transform --profiles-dir transform   # silver views + gold + tests
+```
+
+Explore the orchestration graph with `cd orchestration && dagster dev`.
+
+## Evaluation Framework
 
 ### Quality dimensions
 
@@ -201,46 +208,49 @@ The ML→LLM handoff is the architectural core of this project. Pydantic enforce
 ### Why MLflow over Weights & Biases?
 Both work. MLflow appears in more job postings and is open-source/self-hostable, which is the better signal for production ML engineering vs SaaS-dependent workflows.
 
+### Why a Postgres medallion pipeline over file-based ETL?
+Holding raw, transformed, and serving data in one queryable database makes the pipeline reproducible and inspectable end to end. dbt owns the silver/gold transformations — tests and lineage for free — and Alembic owns the serving schema. See [`docs/adr/0001`](docs/adr/0001-postgres-medallion-architecture.md).
+
+### Why synthetic data augmentation?
+Olist has almost no repeat customers (~3%), so an honest churn label is ~98% positive and unlearnable. A signal-driven simulation adds repeat orders whose timing depends on real first-order experience, making churn a genuine prediction task. The dataset is presented as Olist-plus-simulation, never as raw Olist. See [`docs/adr/0004`](docs/adr/0004-synthetic-repeat-order-augmentation.md).
+
 ---
 
 ## Project Structure
 
 ```
-churn-aware-retention/
-├── src/
-│   ├── data/             # ETL pipeline, churn labeling, feature engineering
-│   ├── api/              # FastAPI app, routes, middleware
-│   ├── ml/               # XGBoost training, SHAP explainer
-│   ├── llm/              # Claude integration, prompt management
-│   ├── eval/             # DistilBERT classifier, LLM-as-judge
-│   ├── schemas/          # Pydantic models for all boundaries
-│   ├── db/               # Postgres models, migrations
-│   └── observability/    # Structured logging, metrics
-├── training/             # Training scripts for both models
-├── notebooks/            # EDA, model exploration, eval analysis
-├── tests/                # Unit, integration, contract tests
-├── data/
-│   ├── raw/              # Olist CSVs (gitignored)
-│   └── processed/        # Versioned training Parquet files
-├── docs/                 # Decision documents and detailed specs
-├── docker/               # Dockerfile and compose config
-├── .github/workflows/    # CI/CD pipelines
+retention-flow/
+├── src/backend/db/         # SQLAlchemy ORM + Alembic migrations (serving schema)
+│   ├── models/             # predictions, shap_values, generated_emails, eval_scores
+│   ├── loader/             # one-time CSV -> raw schema migration
+│   ├── simulation/         # signal-driven synthetic repeat-order generator
+│   └── migrations/         # Alembic
+├── transform/              # dbt project
+│   └── models/
+│       ├── staging/        # stg_* views (silver) — raw + synthetic union
+│       ├── intermediate/   # int_customer_orders (wide order table)
+│       └── marts/          # customer_features (gold table)
+├── orchestration/          # Dagster project — dbt assets + nightly schedule
+├── data/raw/               # Olist CSVs (gitignored)
+├── docs/adr/               # Architecture decision records
+├── CONTEXT.md              # Domain glossary
+├── docker-compose.yml      # Local Postgres
 └── pyproject.toml
+
+Planned (see Roadmap): src/backend/{api,ml,llm,eval}
 ```
 
 ---
 
 ## Documentation
 
-In-depth specs and decision documents:
+Decision records and the domain glossary:
 
-- [`docs/architecture.md`](docs/architecture.md) — Full system architecture with request lifecycle
-- [`docs/data_definition.md`](docs/data_definition.md) — Churn label definition and justification
-- [`docs/data_pipeline.md`](docs/data_pipeline.md) — ETL implementation walkthrough
-- [`docs/eval_rubric.md`](docs/eval_rubric.md) — Email quality scoring rubric
-- [`docs/eval_analysis.md`](docs/eval_analysis.md) — Disagreement patterns between eval models
-- [`docs/api.md`](docs/api.md) — REST API reference
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — Development workflow
+- [`CONTEXT.md`](CONTEXT.md) — Domain glossary: medallion layers, churn label, split
+- [`docs/adr/0001-postgres-medallion-architecture.md`](docs/adr/0001-postgres-medallion-architecture.md) — Three-schema medallion with dbt and Dagster
+- [`docs/adr/0002-future-window-churn-label.md`](docs/adr/0002-future-window-churn-label.md) — Why churn is a forward-looking label
+- [`docs/adr/0003-dagster-for-orchestration.md`](docs/adr/0003-dagster-for-orchestration.md) — Dagster over plain cron
+- [`docs/adr/0004-synthetic-repeat-order-augmentation.md`](docs/adr/0004-synthetic-repeat-order-augmentation.md) — Signal-driven synthetic repeat orders
 
 ---
 

@@ -1,0 +1,28 @@
+name: retention_flow
+version: "1.0.0"
+config-version: 2
+
+profile: retention_flow
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages", "logs"]
+
+# Point-in-time parameters for the gold table. Override per run with:
+#   dbt run --vars '{snapshot_date: 2017-08-01, horizon_days: 180}'
+vars:
+  snapshot_date: "2017-08-01"
+  horizon_days: 180
+
+models:
+  retention_flow:
+    # Silver — cleaned/typed views over the raw tables.
+    staging:
+      +materialized: view
+    # The wide order table (silver join).
+    intermediate:
+      +materialized: view
+    # Gold — the ML training table.
+    marts:
+      +materialized: table

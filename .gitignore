@@ -1,0 +1,36 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# Data (Olist CSVs and processed Parquet are not committed)
+data/
+
+# MLflow
+mlruns/
+
+# Dagster (local runtime / temp home)
+.tmp_dagster_home_*/
+orchestration/logs/
+
+# dbt (also covered by transform/.gitignore)
+transform/target/
+transform/logs/
+transform/dbt_packages/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

@@ -1,285 +1,176 @@
-import { useEffect, useState } from "react";
-import {
-  Bar,
-  BarChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import {
-  Activity,
-  BarChart3,
-  Boxes,
-  CircleCheck,
-  Database,
-  GitBranch,
-  TrendingDown,
-  Users,
-} from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import type {
   FeatureImportance,
   ModelRegistry,
   PipelineStatus,
   Predictions,
+  Runs,
   WarehouseData,
 } from "./api";
-import { Card, Kpi, Skeleton, Stat, chartTooltip } from "./ui";
-import { ScoringPanel } from "./ScoringPanel";
+import { Sidebar, TopBar } from "./shell";
+import type { NavId } from "./shell";
+import {
+  ComingSoonPage,
+  ModelsPage,
+  OverviewPage,
+  PipelinePage,
+  RunsPage,
+  ScoringPage,
+  WarehousePage,
+} from "./pages";
+
+const BREADCRUMBS: Record<NavId, string[]> = {
+  overview: ["Workspace", "Overview"],
+  pipeline: ["Workspace", "Pipeline"],
+  models: ["Workspace", "Models"],
+  scoring: ["Workspace", "Scoring"],
+  warehouse: ["Data", "Warehouse"],
+  runs: ["Data", "Runs"],
+  settings: ["Account", "Settings"],
+};
 
 export default function App() {
+  const [active, setActive] = useState<NavId>("overview");
+  const [collapsed, setCollapsed] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [dagLive, setDagLive] = useState<Record<string, string>>({});
+
   const [pipeline, setPipeline] = useState<PipelineStatus>();
   const [data, setData] = useState<WarehouseData>();
   const [models, setModels] = useState<ModelRegistry>();
   const [fi, setFi] = useState<FeatureImportance>();
-  const [preds, setPreds] = useState<Predictions>();
+  const [predictions, setPredictions] = useState<Predictions>();
+  const [runs, setRuns] = useState<Runs>();
   const [error, setError] = useState<string>();
 
-  useEffect(() => {
+  const loadAll = useCallback(() => {
+    setError(undefined);
     api.pipeline().then(setPipeline).catch((e) => setError(String(e)));
     api.data().then(setData).catch((e) => setError(String(e)));
     api.models().then(setModels).catch((e) => setError(String(e)));
     api.featureImportance().then(setFi).catch((e) => setError(String(e)));
-    api.predictions().then(setPreds).catch((e) => setError(String(e)));
+    api.predictions().then(setPredictions).catch((e) => setError(String(e)));
+    api.runs().then(setRuns).catch((e) => setError(String(e)));
+  }, []);
+
+  useEffect(loadAll, [loadAll]);
+
+  // "Run pipeline" — drop analytics + rebuild via the SSE rebuild stream.
+  // Per-dbt-node completions feed the live pipeline DAG.
+  function runPipeline() {
+    setRunning(true);
+    setDagLive({});
+    const es = new EventSource("/api/pipeline/rebuild/stream");
+    es.onmessage = (e) => {
+      const evt = JSON.parse(e.data) as {
+        message?: string;
+        stage?: string;
+        done?: boolean;
+      };
+      const match = /analytics\.(\w+)/.exec(evt.message ?? "");
+      if (match) {
+        const node = match[1];
+        setDagLive((s) => ({
+          ...s,
+          [node]: evt.stage === "error" ? "error" : "done",
+        }));
+      }
+      if (evt.done) {
+        es.close();
+        setRunning(false);
+        loadAll();
+      }
+    };
+    es.onerror = () => {
+      es.close();
+      setRunning(false);
+    };
+  }
+
+  const handleScored = useCallback((p: Predictions) => {
+    setPredictions(p);
+    api.runs().then(setRuns).catch(() => undefined);
   }, []);
 
   const champion = models?.versions.find((v) => v.is_champion);
-  const cm = models?.champion_metrics ?? {};
-  const splitData = data
-    ? Object.entries(data.splits).map(([name, rows]) => ({ name, rows }))
-    : [];
+  const threshold = Number(champion?.decision_threshold ?? 0.5);
+  const modelVersion = models
+    ? `churn-xgboost v${models.champion_version}`
+    : "churn-xgboost";
+
+  function page() {
+    switch (active) {
+      case "overview":
+        return (
+          <OverviewPage
+            data={data}
+            models={models}
+            pipeline={pipeline}
+            fi={fi}
+            predictions={predictions}
+            runs={runs?.runs}
+            threshold={threshold}
+            modelVersion={modelVersion}
+            running={running}
+            onScored={handleScored}
+          />
+        );
+      case "pipeline":
+        return (
+          <PipelinePage
+            pipeline={pipeline}
+            data={data}
+            championVersion={models?.champion_version}
+            running={running}
+            liveState={dagLive}
+            onRun={runPipeline}
+          />
+        );
+      case "models":
+        return <ModelsPage models={models} fi={fi} />;
+      case "warehouse":
+        return <WarehousePage data={data} />;
+      case "runs":
+        return <RunsPage runs={runs?.runs} />;
+      case "scoring":
+        return (
+          <ScoringPage
+            predictions={predictions}
+            threshold={threshold}
+            modelVersion={modelVersion}
+            onScored={handleScored}
+          />
+        );
+      case "settings":
+        return <ComingSoonPage title="Settings" />;
+      default:
+        return null;
+    }
+  }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="border-b border-slate-800 bg-slate-900/50 px-8 py-4">
-        <div className="mx-auto flex max-w-7xl items-center justify-between">
-          <div>
-            <h1 className="text-lg font-bold tracking-tight">RetentionFlow</h1>
-            <p className="text-xs text-slate-500">
-              churn pipeline — dbt · Postgres · MLflow
-            </p>
-          </div>
-          <div className="flex items-center gap-2 text-xs text-slate-400">
-            <span
-              className={`h-2 w-2 rounded-full ${error ? "bg-red-500" : "bg-emerald-500"}`}
-            />
-            {error ? "API unreachable" : "Connected"}
-          </div>
-        </div>
-      </header>
+    <div className="flex min-h-screen bg-[var(--bg)] text-[var(--fg)]">
+      <Sidebar active={active} onChange={setActive} collapsed={collapsed} />
 
-      <main className="mx-auto max-w-7xl space-y-6 p-8">
-        {error && (
-          <div className="rounded-lg border border-red-800 bg-red-950 p-3 text-sm text-red-300">
-            {error} — is the API running on :8000?
-          </div>
-        )}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <TopBar
+          breadcrumb={BREADCRUMBS[active]}
+          running={running}
+          onRunPipeline={runPipeline}
+          onSync={loadAll}
+          onToggleSidebar={() => setCollapsed((c) => !c)}
+        />
 
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          <Kpi
-            icon={<Users size={20} />}
-            label="customers (gold)"
-            value={data ? data.gold_rows.toLocaleString() : "—"}
-          />
-          <Kpi
-            icon={<TrendingDown size={20} />}
-            label="churn rate"
-            accent="text-amber-400"
-            value={data ? `${(data.gold_churn_rate * 100).toFixed(1)}%` : "—"}
-          />
-          <Kpi
-            icon={<Activity size={20} />}
-            label="champion ROC-AUC"
-            accent="text-sky-400"
-            value={champion?.roc_auc != null ? champion.roc_auc.toFixed(3) : "—"}
-          />
-          <Kpi
-            icon={<CircleCheck size={20} />}
-            label="dbt tests passed"
-            accent="text-emerald-400"
-            value={
-              pipeline?.available
-                ? `${pipeline.tests?.pass ?? 0}/${pipeline.tests_total}`
-                : "—"
-            }
-          />
-        </div>
-
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <Card
-            title="Pipeline — dbt"
-            icon={<GitBranch size={15} />}
-            right={pipeline?.generated_at?.slice(0, 16).replace("T", " ")}
-          >
-            {!pipeline ? (
-              <Skeleton className="h-44 w-full" />
-            ) : pipeline.available ? (
-              <>
-                <div className="mb-4 flex gap-8">
-                  <Stat
-                    label="models built"
-                    value={`${pipeline.models_ok}/${pipeline.model_count}`}
-                    accent="text-emerald-400"
-                  />
-                  <Stat
-                    label="tests"
-                    value={`${pipeline.tests?.pass ?? 0} pass`}
-                    accent={
-                      (pipeline.tests?.fail ?? 0) > 0
-                        ? "text-red-400"
-                        : "text-emerald-400"
-                    }
-                  />
-                </div>
-                <div className="max-h-44 overflow-auto rounded-lg border border-slate-800">
-                  {pipeline.models?.map((m) => (
-                    <div
-                      key={m.name}
-                      className="flex items-center justify-between border-b border-slate-800/60 px-3 py-1.5 text-xs last:border-0"
-                    >
-                      <span className="flex items-center gap-2">
-                        <span
-                          className={`h-1.5 w-1.5 rounded-full ${
-                            m.status === "success" ? "bg-emerald-500" : "bg-red-500"
-                          }`}
-                        />
-                        <span className="font-mono text-slate-300">{m.name}</span>
-                      </span>
-                      <span className="tabular-nums text-slate-600">
-                        {m.execution_time}s
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <p className="text-sm text-slate-500">
-                No dbt run found — run <code>dbt build</code>.
-              </p>
-            )}
-          </Card>
-
-          <Card title="Warehouse — Postgres" icon={<Database size={15} />}>
-            {data ? (
-              <>
-                <div className="mb-4 flex flex-wrap gap-6">
-                  <Stat label="gold rows" value={data.gold_rows.toLocaleString()} />
-                  <Stat label="raw orders" value={data.raw_orders.toLocaleString()} />
-                  <Stat
-                    label="synthetic orders"
-                    value={data.synthetic_orders.toLocaleString()}
-                  />
-                </div>
-                <ResponsiveContainer width="100%" height={110}>
-                  <BarChart data={splitData}>
-                    <XAxis dataKey="name" stroke="#64748b" fontSize={11} />
-                    <YAxis stroke="#64748b" fontSize={11} />
-                    <Tooltip contentStyle={chartTooltip} cursor={{ fill: "#1e293b" }} />
-                    <Bar dataKey="rows" fill="#38bdf8" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-                <div className="mt-3 space-y-1">
-                  {data.segments.map((s) => (
-                    <div key={s.segment} className="flex justify-between text-xs">
-                      <span className="text-slate-400">
-                        {s.segment} customers ({s.rows.toLocaleString()})
-                      </span>
-                      <span className="font-semibold tabular-nums text-amber-400">
-                        {(s.churn_rate * 100).toFixed(1)}% churn
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <Skeleton className="h-56 w-full" />
-            )}
-          </Card>
-
-          <Card
-            title="Model registry — MLflow"
-            icon={<Boxes size={15} />}
-            right={champion ? `champion v${champion.version}` : undefined}
-          >
-            {models ? (
-              <>
-                <div className="mb-4 flex flex-wrap gap-6">
-                  <Stat
-                    label="ROC-AUC"
-                    value={cm.roc_auc?.toFixed(3) ?? "—"}
-                    accent="text-sky-400"
-                  />
-                  <Stat label="PR-AUC" value={cm.pr_auc?.toFixed(3) ?? "—"} />
-                  <Stat label="precision" value={cm.precision?.toFixed(3) ?? "—"} />
-                  <Stat
-                    label="recall"
-                    value={cm.recall?.toFixed(3) ?? "—"}
-                    accent="text-emerald-400"
-                  />
-                </div>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-xs uppercase text-slate-500">
-                      <th className="pb-2 text-left">version</th>
-                      <th className="pb-2 text-right">ROC-AUC</th>
-                      <th className="pb-2 text-right">threshold</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {models.versions.map((v) => (
-                      <tr key={v.version} className="border-t border-slate-800">
-                        <td className="py-1.5">
-                          v{v.version}
-                          {v.is_champion && (
-                            <span className="ml-2 rounded bg-emerald-900 px-1.5 py-0.5 text-xs text-emerald-300">
-                              champion
-                            </span>
-                          )}
-                        </td>
-                        <td className="text-right tabular-nums">{v.roc_auc ?? "—"}</td>
-                        <td className="text-right tabular-nums">
-                          {v.decision_threshold ?? "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </>
-            ) : (
-              <Skeleton className="h-56 w-full" />
-            )}
-          </Card>
-
-          <Card
-            title="Feature importance — champion model"
-            icon={<BarChart3 size={15} />}
-          >
-            {fi ? (
-              <ResponsiveContainer width="100%" height={420}>
-                <BarChart data={fi.features} layout="vertical" margin={{ left: 30 }}>
-                  <XAxis type="number" stroke="#64748b" fontSize={10} />
-                  <YAxis
-                    type="category"
-                    dataKey="feature"
-                    stroke="#64748b"
-                    fontSize={10}
-                    width={140}
-                  />
-                  <Tooltip contentStyle={chartTooltip} cursor={{ fill: "#1e293b" }} />
-                  <Bar dataKey="importance" fill="#38bdf8" radius={[0, 3, 3, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <Skeleton className="h-96 w-full" />
-            )}
-          </Card>
-
-          <div className="lg:col-span-2">
-            <ScoringPanel preds={preds} onScored={setPreds} />
-          </div>
-        </div>
-      </main>
+        <main className="flex-1 px-6 py-6 lg:px-8 lg:py-8">
+          {error && (
+            <div className="mb-6 rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-[12.5px] text-rose-200">
+              {error} — is the API running on :8000?
+            </div>
+          )}
+          {page()}
+        </main>
+      </div>
     </div>
   );
 }

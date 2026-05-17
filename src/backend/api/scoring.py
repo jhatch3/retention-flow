@@ -7,6 +7,7 @@ is the one-shot equivalent.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterator
 from datetime import datetime, timezone
 
@@ -19,6 +20,7 @@ from sqlalchemy import text
 from ..db.session import engine
 from ..ml.data import FEATURE_COLUMNS, load_gold, prepare_features
 from ..ml.train import CHAMPION_ALIAS, MLFLOW_URI, REGISTERED_MODEL
+from .runs import record_run
 
 PREDICTIONS_TABLE = "serving.predictions"
 
@@ -35,6 +37,7 @@ def _event(stage: str, message: str, progress: float, **extra) -> dict:
 
 def score_events() -> Iterator[dict]:
     """Run batch scoring, yielding a progress event after each stage."""
+    t0 = time.perf_counter()
     yield _event("start", "Starting batch scoring run", 0.05)
 
     mlflow.set_tracking_uri(MLFLOW_URI)
@@ -86,6 +89,10 @@ def score_events() -> Iterator[dict]:
         "model_version": model_version,
     }
     yield _event("done", "Batch scoring complete", 1.0, done=True, result=result)
+    record_run(
+        "scoring", "success", t0,
+        f"{churn:,} of {len(predictions):,} customers flagged",
+    )
 
 
 def run_batch_scoring() -> dict:

@@ -80,6 +80,31 @@ export interface ScoreEvent {
   result?: ScoreResult;
 }
 
+export interface RebuildEvent {
+  stage: string;
+  message: string;
+  progress: number;
+  elapsed: number;
+  ts: string;
+  done?: boolean;
+  error?: boolean;
+  gold_rows?: number;
+  total_seconds?: number;
+}
+
+export interface RunRecord {
+  id: string;
+  kind: string;
+  status: string;
+  started_at: string;
+  duration_s: number;
+  detail: string;
+}
+
+export interface Runs {
+  runs: RunRecord[];
+}
+
 async function request<T>(path: string): Promise<T> {
   const res = await fetch(path);
   if (!res.ok) throw new Error(`${path} → ${res.status}`);
@@ -92,4 +117,5 @@ export const api = {
   models: () => request<ModelRegistry>("/api/models"),
   featureImportance: () => request<FeatureImportance>("/api/feature-importance"),
   predictions: () => request<Predictions>("/api/predictions"),
+  runs: () => request<Runs>("/api/runs"),
 };

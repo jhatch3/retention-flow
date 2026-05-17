@@ -8,8 +8,10 @@ One JSON API over three sources:
 - GET  /api/models              MLflow registered churn-model versions
 - GET  /api/feature-importance  champion model feature importances
 - GET  /api/predictions         summary of the latest batch scoring
+- GET  /api/runs                recent rebuild + scoring runs
 - POST /api/score               run batch scoring (one-shot)
 - GET  /api/score/stream        run batch scoring, streaming progress (SSE)
+- GET  /api/pipeline/rebuild/stream  drop analytics + dbt build, timed (SSE)
 """
 
 from __future__ import annotations
@@ -21,6 +23,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
+from .rebuild import rebuild_events
+from .runs import recent_runs
 from .scoring import predictions_overview, run_batch_scoring, score_events
 from .services import dbt_status, feature_importance, model_registry, warehouse_overview
 
@@ -70,22 +74,39 @@ def predictions() -> dict:
     return predictions_overview()
 
 
+@app.get("/api/runs")
+def runs() -> dict:
+    """Recent pipeline rebuilds and scoring runs."""
+    return recent_runs()
+
+
 @app.post("/api/score")
 def score() -> dict:
     """Run batch scoring with the champion model; replaces serving.predictions."""
     return run_batch_scoring()
 
 
-@app.get("/api/score/stream")
-def score_stream() -> StreamingResponse:
-    """Run batch scoring, streaming a progress event per stage (Server-Sent Events)."""
+def _sse(events: Iterator[dict]) -> StreamingResponse:
+    """Wrap an event generator as a Server-Sent Events response."""
 
-    def sse() -> Iterator[str]:
-        for event in score_events():
+    def stream() -> Iterator[str]:
+        for event in events:
             yield f"data: {json.dumps(event)}\n\n"
 
     return StreamingResponse(
-        sse(),
+        stream(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.get("/api/score/stream")
+def score_stream() -> StreamingResponse:
+    """Run batch scoring, streaming a progress event per stage."""
+    return _sse(score_events())
+
+
+@app.get("/api/pipeline/rebuild/stream")
+def rebuild_stream() -> StreamingResponse:
+    """Drop the analytics schema and re-run dbt build, streaming timed progress."""
+    return _sse(rebuild_events())

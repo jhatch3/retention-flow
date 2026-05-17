@@ -1,23 +1,27 @@
+// Batch scoring panel — live SSE log + progress + risk histogram.
 import { useEffect, useRef, useState } from "react";
-import {
-  Bar,
-  BarChart,
-  Cell,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { Loader2, Play, Zap } from "lucide-react";
 import { api } from "./api";
 import type { Predictions, ScoreEvent } from "./api";
-import { Card, Stat, chartTooltip } from "./ui";
+import { Button, Card, KvItem } from "./ui";
+import { RiskHistogram } from "./charts";
+
+function lineColor(stage: string): string {
+  if (stage === "done") return "text-emerald-300";
+  if (stage === "error") return "text-rose-300";
+  if (stage === "score") return "text-[var(--fg-soft)]";
+  return "text-[var(--muted)]";
+}
 
 export function ScoringPanel({
-  preds,
+  predictions,
+  threshold,
+  modelVersion,
   onScored,
 }: {
-  preds?: Predictions;
+  predictions?: Predictions;
+  threshold: number;
+  modelVersion: string;
   onScored: (p: Predictions) => void;
 }) {
   const [running, setRunning] = useState(false);
@@ -54,117 +58,104 @@ export function ScoringPanel({
     };
   }
 
-  const hist =
-    preds?.risk_histogram?.map((h) => ({
-      band: `${(h.bucket - 1) * 10}-${h.bucket * 10}`,
-      count: h.count,
-    })) ?? [];
+  const scored = predictions?.scored;
 
   return (
-    <Card title="Batch scoring" icon={<Zap size={15} />}>
-      <button
-        onClick={run}
-        disabled={running}
-        className="mb-3 inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-500 disabled:opacity-50"
-      >
-        {running ? (
-          <Loader2 size={15} className="animate-spin" />
-        ) : (
-          <Play size={15} />
-        )}
-        {running ? "Scoring…" : "Run batch scoring"}
-      </button>
-
-      {(running || log.length > 0) && (
-        <>
-          <div className="mb-2 h-1.5 w-full overflow-hidden rounded bg-slate-800">
-            <div
-              className="h-full bg-sky-500 transition-all duration-300"
-              style={{ width: `${progress * 100}%` }}
-            />
+    <Card
+      title="Batch scoring"
+      subtitle={`Stream output · ${modelVersion} · threshold ${threshold}`}
+      icon={<Zap size={14} />}
+      right={
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={run}
+          disabled={running}
+          leftIcon={
+            running ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />
+          }
+        >
+          {running ? "Scoring…" : "Run scoring"}
+        </Button>
+      }
+    >
+      <div className="grid gap-6 lg:grid-cols-[1.1fr_1fr]">
+        {/* Left — progress + log */}
+        <div>
+          <div className="mb-2.5 flex items-center gap-3">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/[0.04]">
+              <div
+                className="h-full bg-[var(--accent)] transition-all duration-300"
+                style={{ width: `${progress * 100}%` }}
+              />
+            </div>
+            <span className="w-10 text-right font-mono text-[11px] tabular-nums text-[var(--muted)]">
+              {Math.round(progress * 100)}%
+            </span>
           </div>
+
           <div
             ref={logRef}
-            className="mb-5 h-36 overflow-auto rounded-lg border border-slate-800 bg-slate-950 p-3 font-mono text-xs leading-relaxed"
+            className="h-44 overflow-auto rounded-lg border border-[var(--line)] bg-[var(--surface-deep)] p-3 font-mono text-[11.5px] leading-relaxed"
           >
-            {log.map((e, i) => (
-              <div
-                key={i}
-                className={
-                  e.stage === "done"
-                    ? "text-emerald-400"
-                    : e.stage === "error"
-                      ? "text-red-400"
-                      : "text-slate-400"
-                }
-              >
-                {e.ts && <span className="text-slate-600">{e.ts} </span>}
-                {e.message}
+            {log.length === 0 ? (
+              <div className="text-[var(--muted)]">
+                <span className="text-[var(--accent)]">›</span> idle — press{" "}
+                <span className="text-[var(--fg-soft)]">Run scoring</span> to stream
+                live progress
               </div>
-            ))}
+            ) : (
+              log.map((e, i) => (
+                <div key={i} className={lineColor(e.stage)}>
+                  {e.ts && <span className="text-[var(--muted)]">{e.ts}</span>}
+                  <span className="mx-2 text-[var(--muted)]">│</span>
+                  <span className="mr-2 inline-block w-14 text-[10px] uppercase tracking-wider text-[var(--muted)]">
+                    {e.stage}
+                  </span>
+                  {e.message}
+                </div>
+              ))
+            )}
           </div>
-        </>
-      )}
 
-      {preds?.scored ? (
-        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-          <div>
-            <div className="mb-3 flex flex-wrap gap-6">
-              <Stat label="customers scored" value={(preds.total ?? 0).toLocaleString()} />
-              <Stat
-                label="predicted churn"
-                value={(preds.predicted_churn ?? 0).toLocaleString()}
-                accent="text-amber-400"
-              />
-              <Stat
-                label="avg probability"
-                value={(preds.avg_probability ?? 0).toFixed(3)}
-              />
-            </div>
-            <div className="mb-1 text-xs text-slate-500">
-              churn-probability distribution (%)
-            </div>
-            <ResponsiveContainer width="100%" height={150}>
-              <BarChart data={hist}>
-                <XAxis dataKey="band" stroke="#64748b" fontSize={10} />
-                <YAxis stroke="#64748b" fontSize={11} />
-                <Tooltip contentStyle={chartTooltip} cursor={{ fill: "#1e293b" }} />
-                <Bar dataKey="count" radius={[3, 3, 0, 0]}>
-                  {hist.map((_, i) => (
-                    <Cell key={i} fill={i >= 7 ? "#f59e0b" : "#38bdf8"} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <div>
-            <div className="mb-2 text-xs text-slate-500">
-              highest-risk customers
-            </div>
-            <table className="w-full text-xs">
-              <tbody>
-                {preds.top_at_risk?.map((c) => (
-                  <tr key={c.customer_unique_id} className="border-t border-slate-800">
-                    <td className="py-1.5 font-mono text-slate-400">
-                      {c.customer_unique_id.slice(0, 12)}…
-                    </td>
-                    <td className="py-1.5 text-right font-semibold tabular-nums text-amber-400">
-                      {(c.churn_probability * 100).toFixed(1)}%
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-[11.5px]">
+            <KvItem
+              k="Customers scored"
+              v={scored ? (predictions.total ?? 0).toLocaleString() : "—"}
+            />
+            <KvItem
+              k="Predicted churn"
+              v={scored ? (predictions.predicted_churn ?? 0).toLocaleString() : "—"}
+              tone="warn"
+            />
+            <KvItem
+              k="Avg probability"
+              v={scored ? (predictions.avg_probability ?? 0).toFixed(3) : "—"}
+              mono
+            />
+            <KvItem k="Output" v="serving.predictions" mono />
           </div>
         </div>
-      ) : (
-        !running &&
-        log.length === 0 && (
-          <p className="text-sm text-slate-500">
-            No predictions yet — run batch scoring.
-          </p>
-        )
-      )}
+
+        {/* Right — risk histogram */}
+        <div>
+          <div className="mb-1 flex items-baseline justify-between">
+            <span className="text-[10.5px] font-medium uppercase tracking-[0.1em] text-[var(--muted)]">
+              Risk distribution
+            </span>
+            <span className="font-mono text-[10.5px] text-[var(--muted)]">
+              threshold {threshold} ─→ above flagged
+            </span>
+          </div>
+          {scored && predictions.risk_histogram?.length ? (
+            <RiskHistogram data={predictions.risk_histogram} threshold={threshold} />
+          ) : (
+            <div className="flex h-[180px] items-center justify-center text-[12px] text-[var(--muted)]">
+              run scoring to populate the distribution
+            </div>
+          )}
+        </div>
+      </div>
     </Card>
   );
 }

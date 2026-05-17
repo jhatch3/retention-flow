@@ -1,1 +1,76 @@
 @import "tailwindcss";
+
+@layer base {
+  :root {
+    /* Surface */
+    --bg:             oklch(0.155 0.008 270);
+    --surface:        oklch(0.185 0.008 270);
+    --surface-deep:   oklch(0.135 0.008 270);
+    --surface-strong: oklch(0.22  0.008 270);
+
+    /* Lines */
+    --line:           oklch(0.27  0.008 270 / 0.85);
+    --line-strong:    oklch(0.34  0.008 270);
+
+    /* Type */
+    --fg:             oklch(0.97  0.005 270);
+    --fg-soft:        oklch(0.78  0.008 270);
+    --muted:          oklch(0.55  0.008 270);
+
+    /* Accents */
+    --accent:         oklch(0.72  0.18  285);
+    --accent-hov:     oklch(0.76  0.18  285);
+    --accent-fg:      oklch(0.92  0.05  285);
+    --accent-2:       oklch(0.72  0.14  220);
+    --on-accent:      oklch(0.13  0.02  285);
+
+    --font-sans: "Inter Tight", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  }
+
+  html, body { background: var(--bg); color: var(--fg); }
+  body {
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body::before {
+    content: "";
+    position: fixed; inset: 0;
+    background:
+      radial-gradient(900px 500px at 18% -10%, color-mix(in oklch, var(--accent) 14%, transparent), transparent 60%),
+      radial-gradient(700px 400px at 100% 0%, color-mix(in oklch, var(--accent-2) 8%, transparent), transparent 55%);
+    pointer-events: none; z-index: 0;
+  }
+  #root { position: relative; z-index: 1; }
+
+  ::selection { background: color-mix(in oklch, var(--accent) 35%, transparent); color: var(--fg); }
+
+  *::-webkit-scrollbar { width: 8px; height: 8px; }
+  *::-webkit-scrollbar-thumb { background: oklch(0.32 0.008 270); border-radius: 4px; }
+  *::-webkit-scrollbar-thumb:hover { background: oklch(0.4 0.008 270); }
+
+  /* Recharts axis text */
+  .recharts-text { fill: var(--muted); }
+  .recharts-cartesian-axis-line,
+  .recharts-cartesian-axis-tick-line { display: none; }
+
+  button:focus-visible {
+    outline: 2px solid color-mix(in oklch, var(--accent) 70%, transparent);
+    outline-offset: 1px;
+  }
+}
+
+/* Pipeline-DAG edge flow animation (active during a rebuild) */
+@keyframes dag-flow {
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+.dag-edge-flow {
+  stroke-dasharray: 5 5;
+  animation: dag-flow 0.55s linear infinite;
+}
+

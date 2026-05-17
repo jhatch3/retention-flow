@@ -1,7 +1,6 @@
 // App shell — sidebar, top bar, page header.
 import type { ReactNode } from "react";
 import {
-  Activity,
   Boxes,
   ChevronRight,
   Clock,
@@ -17,6 +16,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "./ui";
+import { Logo } from "./Logo";
 import { cx } from "./lib";
 
 export type NavId =
@@ -77,7 +77,7 @@ export function Sidebar({
       {/* Brand */}
       <div className="flex h-[57px] items-center gap-2.5 border-b border-[var(--line)] px-4">
         <div className="relative grid h-7 w-7 shrink-0 place-items-center rounded-md bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] shadow-[0_0_0_1px_rgba(255,255,255,0.1)_inset,0_4px_10px_-2px_color-mix(in_oklch,var(--accent)_45%,transparent)]">
-          <Activity size={14} strokeWidth={2.5} className="text-white" />
+          <Logo size={16} className="text-white" />
         </div>
         {!collapsed && (
           <div className="min-w-0">

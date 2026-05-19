@@ -64,3 +64,28 @@ export function Avatar({
 export function Sk({ className = "" }: { className?: string }) {
   return <div className={`animate-pulse rounded-md bg-black/[0.06] ${className}`} />;
 }
+
+// Card / section header — caps-mono eyebrow + title + optional action.
+export function SectionHead({
+  eyebrow,
+  title,
+  action,
+}: {
+  eyebrow: string;
+  title: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="mb-2 flex items-start justify-between gap-2">
+      <div className="min-w-0">
+        <div className="font-mono text-[10px] uppercase tracking-[1.2px] text-[var(--muted)]">
+          {eyebrow}
+        </div>
+        <div className="mt-0.5 truncate text-[13px] font-semibold tracking-[-0.2px] text-[var(--fg)]">
+          {title}
+        </div>
+      </div>
+      {action}
+    </div>
+  );
+}

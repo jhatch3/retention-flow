@@ -8,8 +8,8 @@ import type { FilterKey } from "../api";
 import { useInboxCustomer, useInboxQueue } from "./inbox.hooks";
 import { DetailPane } from "./DetailPane";
 import { QueuePanel } from "./QueuePanel";
+import { RightRail } from "./RightRail";
 import type { InboxTab } from "./TabBar";
-import { Sk } from "./ui";
 
 export function InboxPage() {
   const [filter, setFilter] = useState<FilterKey>("all");
@@ -64,12 +64,10 @@ export function InboxPage() {
         modelVersion={list.data?.model_version ?? ""}
       />
 
-      {/* Right rail — real cards land in PR6. */}
-      <aside className="flex w-[296px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-[var(--line)] bg-[var(--surface)] p-4">
-        {Array.from({ length: 4 }, (_, i) => (
-          <Sk key={i} className="h-32 w-full" />
-        ))}
-      </aside>
+      <RightRail
+        detail={detail.data}
+        modelVersion={list.data?.model_version ?? ""}
+      />
     </div>
   );
 }

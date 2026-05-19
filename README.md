@@ -185,6 +185,16 @@ PYTHONPATH=src uvicorn backend.api.app:app --port 8000   # FastAPI backend
 cd src/dashboard && npm install && npm run dev           # UI at localhost:5173
 ```
 
+### Tests
+
+Unit tests for the ML and API logic (no database required — the gold table is
+stubbed and the run log is redirected to a temp file):
+
+```bash
+pip install -e ".[dev]"   # installs pytest
+pytest                    # runs tests/
+```
+
 ## Evaluation Framework
 
 ### Quality dimensions
@@ -252,6 +262,7 @@ retention-flow/
 │   ├── orchestration/      # Dagster project — dbt assets + nightly schedule
 │   └── dashboard/          # React + Tailwind + TypeScript dashboard (Vite)
 ├── notebooks/              # EDA + experimentation (churn_xgboost.ipynb)
+├── tests/                  # pytest suite — ML + API unit tests
 ├── logs/mlruns/            # local MLflow tracking store (gitignored)
 ├── data/raw/               # Olist CSVs (gitignored)
 ├── docs/adr/               # Architecture decision records

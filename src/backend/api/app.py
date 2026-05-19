@@ -13,6 +13,8 @@ One JSON API over three sources:
 - GET  /api/shap                global SHAP summary + per-customer breakdowns
 - GET  /api/runs                recent rebuild + scoring runs
 - GET  /api/eval/model          DistilBERT email-quality model + metrics
+- GET  /api/inbox/customers          at-risk customer queue (Triage Inbox)
+- GET  /api/inbox/customers/{id}     one customer's triage detail
 - POST /api/score               run batch scoring (one-shot)
 - GET  /api/score/stream        run batch scoring, streaming progress (SSE)
 - GET  /api/pipeline/rebuild/stream  drop analytics + dbt build, timed (SSE)
@@ -24,11 +26,12 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from .email_eval import eval_model_card
+from .inbox import inbox_customer, inbox_customers
 from .rebuild import full_pipeline_events, rebuild_events
 from .runs import recent_runs
 from .scoring import (
@@ -120,6 +123,23 @@ def runs() -> dict:
 def eval_model() -> dict:
     """Registered DistilBERT email-quality model and its champion metrics."""
     return eval_model_card()
+
+
+@app.get("/api/inbox/customers")
+def inbox_customers_route(
+    filter: str = "all", limit: int = 100, offset: int = 0
+) -> dict:
+    """At-risk customer queue — summaries sorted by risk, with tier totals."""
+    return inbox_customers(risk_filter=filter, limit=limit, offset=offset)
+
+
+@app.get("/api/inbox/customers/{customer_id}")
+def inbox_customer_route(customer_id: str) -> dict:
+    """Centre + right-pane triage detail for one at-risk customer."""
+    detail = inbox_customer(customer_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"unknown customer: {customer_id}")
+    return detail
 
 
 @app.post("/api/score")

@@ -137,7 +137,7 @@ function ExpandedTable({
 }) {
   const [sample, setSample] = useState<WarehouseSample>();
   const [closing, setClosing] = useState(false);
-  const timer = useRef<number>();
+  const timer = useRef<number | undefined>(undefined);
 
   // Animate out, then unmount.
   function requestClose() {

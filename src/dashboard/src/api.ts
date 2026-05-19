@@ -167,6 +167,22 @@ export interface PipelineReport {
   total_seconds: number;
 }
 
+export interface EvalModel {
+  available: boolean;
+  model_name: string;
+  champion_version?: string;
+  base_model?: string | null;
+  n_train?: number | null;
+  pass_threshold?: number;
+  metrics?: {
+    test_accuracy: number | null;
+    test_f1_macro: number | null;
+    test_mae_grades: number | null;
+    validation_accuracy: number | null;
+  };
+  created_at?: string;
+}
+
 async function request<T>(path: string): Promise<T> {
   const res = await fetch(path);
   if (!res.ok) throw new Error(`${path} → ${res.status}`);
@@ -187,4 +203,5 @@ export const api = {
   predictions: () => request<Predictions>("/api/predictions"),
   shap: () => request<ShapData>("/api/shap"),
   runs: () => request<Runs>("/api/runs"),
+  evalModel: () => request<EvalModel>("/api/eval/model"),
 };

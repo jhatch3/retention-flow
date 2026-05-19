@@ -12,6 +12,7 @@ One JSON API over three sources:
 - GET  /api/predictions         summary of the latest batch scoring
 - GET  /api/shap                global SHAP summary + per-customer breakdowns
 - GET  /api/runs                recent rebuild + scoring runs
+- GET  /api/eval/model          DistilBERT email-quality model + metrics
 - POST /api/score               run batch scoring (one-shot)
 - GET  /api/score/stream        run batch scoring, streaming progress (SSE)
 - GET  /api/pipeline/rebuild/stream  drop analytics + dbt build, timed (SSE)
@@ -27,6 +28,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
+from .email_eval import eval_model_card
 from .rebuild import full_pipeline_events, rebuild_events
 from .runs import recent_runs
 from .scoring import (
@@ -112,6 +114,12 @@ def shap() -> dict:
 def runs() -> dict:
     """Recent pipeline rebuilds and scoring runs."""
     return recent_runs()
+
+
+@app.get("/api/eval/model")
+def eval_model() -> dict:
+    """Registered DistilBERT email-quality model and its champion metrics."""
+    return eval_model_card()
 
 
 @app.post("/api/score")

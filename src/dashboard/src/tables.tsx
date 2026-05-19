@@ -1,6 +1,18 @@
 // At-risk customer table (with per-customer SHAP) + recent runs.
 import { Fragment, useState } from "react";
-import { Bell, ChevronRight, Clock, Download, ExternalLink, Mail } from "lucide-react";
+import {
+  Activity,
+  Bell,
+  ChevronRight,
+  Clock,
+  Download,
+  ExternalLink,
+  GitBranch,
+  Mail,
+  Play,
+  Zap,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import type { Predictions, RunRecord, ShapContribution, ShapCustomer } from "./api";
 import { Button, Card, Pill, Skeleton } from "./ui";
 import { cx, downloadCsv, openExternal } from "./lib";
@@ -293,6 +305,114 @@ export function RecentRunsCard({ runs }: { runs?: RunRecord[] }) {
           </tbody>
         </table>
       )}
+    </Card>
+  );
+}
+
+// ─── Recent runs — dynamic card grid (Runs page) ─────────────────────────
+const RUN_KINDS: Record<string, { label: string; icon: LucideIcon }> = {
+  rebuild: { label: "dbt rebuild", icon: GitBranch },
+  pipeline: { label: "Full pipeline", icon: Play },
+  score: { label: "Batch scoring", icon: Zap },
+};
+
+// "2h ago" / "3d ago" — relative time from an ISO timestamp.
+function relTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return iso;
+  const s = Math.max(0, (Date.now() - then) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+export function RunCardGrid({ runs }: { runs?: RunRecord[] }) {
+  if (!runs)
+    return (
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {[0, 1, 2].map((i) => (
+          <Skeleton key={i} className="h-36 w-full" />
+        ))}
+      </div>
+    );
+
+  if (runs.length === 0)
+    return (
+      <Card title="Recent runs" icon={<Clock size={14} />}>
+        <div className="py-10 text-center text-[12.5px] text-[var(--muted)]">
+          No runs yet — trigger a rebuild or batch scoring.
+        </div>
+      </Card>
+    );
+
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {runs.map((r) => {
+        const meta = RUN_KINDS[r.kind] ?? { label: r.kind, icon: Activity };
+        const Icon = meta.icon;
+        const ok = r.status === "success";
+        return (
+          <section
+            key={r.id}
+            className="flex flex-col gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 shadow-[0_1px_0_rgba(255,255,255,0.03)_inset,0_1px_2px_rgba(0,0,0,0.4)] transition-colors hover:border-[var(--line-strong)]"
+          >
+            <div className="flex items-center gap-2.5">
+              <span
+                className={cx(
+                  "grid h-8 w-8 shrink-0 place-items-center rounded-lg border",
+                  ok
+                    ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-300"
+                    : "border-rose-500/25 bg-rose-500/10 text-rose-300",
+                )}
+              >
+                <Icon size={15} />
+              </span>
+              <div className="min-w-0">
+                <div className="truncate text-[12.5px] font-semibold tracking-tight text-[var(--fg)]">
+                  {meta.label}
+                </div>
+                <div className="text-[10.5px] text-[var(--muted)]">
+                  {relTime(r.started_at)}
+                </div>
+              </div>
+              <Pill tone={ok ? "success" : "danger"} dot className="ml-auto">
+                {r.status}
+              </Pill>
+            </div>
+
+            <p className="min-h-[34px] text-[12px] leading-relaxed text-[var(--fg-soft)]">
+              {r.detail}
+            </p>
+
+            <div className="mt-auto flex items-center justify-between border-t border-[var(--line)] pt-2.5 text-[10.5px] text-[var(--muted)]">
+              <span className="font-mono">{r.id}</span>
+              <span className="font-mono tabular-nums">{r.duration_s}s</span>
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+// Placeholder — recipient-level email history needs the LLM email pipeline,
+// which isn't built yet (serving.generated_emails is empty).
+export function EmailOutreachCard() {
+  return (
+    <Card
+      title="Email outreach"
+      subtitle="Recipients, generated emails, and eval grades — per retention run"
+      icon={<Mail size={14} />}
+      right={<Pill tone="neutral">Coming soon</Pill>}
+    >
+      <div className="py-8 text-center">
+        <p className="mx-auto max-w-md text-[12.5px] leading-relaxed text-[var(--muted)]">
+          Once the LLM email-generation pipeline ships, each run's outreach
+          lands here — which at-risk customers were emailed, the generated
+          email, and its eval grade. No emails have been generated yet.
+        </p>
+      </div>
     </Card>
   );
 }

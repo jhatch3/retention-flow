@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import type {
+  EvalModel,
   FeatureImportance,
   ModelRegistry,
   PipelineReport,
@@ -15,6 +16,7 @@ import { Sidebar, TopBar } from "./shell";
 import type { NavId } from "./shell";
 import {
   ComingSoonPage,
+  EvalPage,
   ModelsPage,
   OverviewPage,
   PipelinePage,
@@ -28,6 +30,7 @@ const BREADCRUMBS: Record<NavId, string[]> = {
   pipeline: ["Workspace", "Pipeline"],
   models: ["Workspace", "Models"],
   scoring: ["Workspace", "Scoring"],
+  eval: ["Workspace", "Eval"],
   warehouse: ["Data", "Warehouse"],
   runs: ["Data", "Runs"],
   settings: ["Account", "Settings"],
@@ -47,6 +50,7 @@ export default function App() {
   const [predictions, setPredictions] = useState<Predictions>();
   const [shap, setShap] = useState<ShapData>();
   const [runs, setRuns] = useState<Runs>();
+  const [evalModel, setEvalModel] = useState<EvalModel>();
   const [error, setError] = useState<string>();
 
   const loadAll = useCallback(() => {
@@ -58,6 +62,7 @@ export default function App() {
     api.predictions().then(setPredictions).catch((e) => setError(String(e)));
     api.shap().then(setShap).catch((e) => setError(String(e)));
     api.runs().then(setRuns).catch((e) => setError(String(e)));
+    api.evalModel().then(setEvalModel).catch((e) => setError(String(e)));
   }, []);
 
   useEffect(loadAll, [loadAll]);
@@ -151,6 +156,8 @@ export default function App() {
             onScored={handleScored}
           />
         );
+      case "eval":
+        return <EvalPage model={evalModel} />;
       case "settings":
         return <ComingSoonPage title="Settings" />;
       default:

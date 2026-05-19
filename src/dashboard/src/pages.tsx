@@ -1,6 +1,7 @@
 // Per-section pages — each composes the relevant cards behind a PageHeader.
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Gavel, MailCheck } from "lucide-react";
 import type {
+  EvalModel,
   FeatureImportance,
   ModelRegistry,
   PipelineStatus,
@@ -10,7 +11,7 @@ import type {
   WarehouseData,
 } from "./api";
 import { PageHeader } from "./shell";
-import { Button, Card } from "./ui";
+import { Button, Card, MetricCell, Pill, Skeleton } from "./ui";
 import { openExternal } from "./lib";
 import {
   ChurnHero,
@@ -21,7 +22,12 @@ import {
   ShapCard,
   WarehouseCard,
 } from "./cards";
-import { AtRiskTable, RecentRunsCard } from "./tables";
+import {
+  AtRiskTable,
+  EmailOutreachCard,
+  RecentRunsCard,
+  RunCardGrid,
+} from "./tables";
 import { ScoringPanel } from "./ScoringPanel";
 import { PipelineDag } from "./PipelineDag";
 import { WarehouseTables } from "./WarehouseTables";
@@ -190,7 +196,10 @@ export function RunsPage({ runs }: { runs?: RunRecord[] }) {
         title="Runs"
         description="History of pipeline rebuilds and batch-scoring runs triggered from the dashboard."
       />
-      <RecentRunsCard runs={runs} />
+      <div className="space-y-6">
+        <RunCardGrid runs={runs} />
+        <EmailOutreachCard />
+      </div>
     </>
   );
 }
@@ -245,6 +254,104 @@ export function ComingSoonPage({ title }: { title: string }) {
           Coming soon
         </div>
       </Card>
+    </>
+  );
+}
+
+// ─── Eval ────────────────────────────────────────────────────────────────
+function fmtPct(v?: number | null): string {
+  return v == null ? "—" : `${(v * 100).toFixed(1)}%`;
+}
+
+function fmtNum(v?: number | null): string {
+  return v == null ? "—" : v.toFixed(2);
+}
+
+function EvalModelCard({ model }: { model?: EvalModel }) {
+  if (!model) return <Skeleton className="h-44 w-full" />;
+
+  if (!model.available) {
+    return (
+      <Card
+        title="DistilBERT · email quality"
+        subtitle="Tier 1 — fine-tuned classifier, grades every email inline"
+        icon={<MailCheck size={14} />}
+      >
+        <div className="py-8 text-center text-[12.5px] text-[var(--muted)]">
+          No model registered yet — run{" "}
+          <code className="font-mono text-[var(--fg-soft)]">
+            python -m backend.eval.distilbert.train
+          </code>
+          .
+        </div>
+      </Card>
+    );
+  }
+
+  const m = model.metrics;
+  return (
+    <Card
+      title="DistilBERT · email quality"
+      subtitle="Tier 1 — fine-tuned classifier, grades every email inline"
+      icon={<MailCheck size={14} />}
+      right={
+        <Pill tone="accent" dot>
+          v{model.champion_version} · champion
+        </Pill>
+      }
+    >
+      <div className="grid grid-cols-2 gap-5 sm:grid-cols-4">
+        <MetricCell label="Test accuracy" value={fmtPct(m?.test_accuracy)} primary />
+        <MetricCell label="Macro F1" value={fmtNum(m?.test_f1_macro)} />
+        <MetricCell label="MAE · grades" value={fmtNum(m?.test_mae_grades)} />
+        <MetricCell
+          label="Train rows"
+          value={model.n_train?.toLocaleString() ?? "—"}
+        />
+      </div>
+      <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 border-t border-[var(--line)] pt-3 text-[11px] text-[var(--muted)]">
+        <span>
+          base ·{" "}
+          <span className="font-mono text-[var(--fg-soft)]">
+            {model.base_model ?? "distilbert-base-uncased"}
+          </span>
+        </span>
+        <span>pass threshold · grade ≥ {model.pass_threshold ?? 3}</span>
+      </div>
+    </Card>
+  );
+}
+
+function LlmJudgeCard() {
+  return (
+    <Card
+      title="LLM judge"
+      subtitle="Tier 2 — Claude re-grades on the same 1–5 scale"
+      icon={<Gavel size={14} />}
+      right={<Pill tone="neutral">Coming soon</Pill>}
+    >
+      <p className="max-w-2xl text-[12.5px] leading-relaxed text-[var(--muted)]">
+        The second eval tier sends emails to Claude for a grounded quality
+        grade. Where the LLM judge and DistilBERT disagree is the signal worth
+        investigating — that gap drives the disagreement analysis. Not wired up
+        yet.
+      </p>
+    </Card>
+  );
+}
+
+export function EvalPage({ model }: { model?: EvalModel }) {
+  return (
+    <>
+      <PageHeader
+        eyebrow="Workspace"
+        title="Email quality eval"
+        description="Two-tier evaluation of generated retention emails. Tier 1 is a fine-tuned DistilBERT classifier that grades every email inline; tier 2 is an LLM-as-judge."
+      />
+      <div className="space-y-6">
+        <EvalModelCard model={model} />
+        <LlmJudgeCard />
+      </div>
     </>
   );
 }

@@ -8,6 +8,7 @@ import {
   GitBranch,
   LayoutGrid,
   Loader2,
+  MailCheck,
   Menu,
   Play,
   RefreshCw,
@@ -24,6 +25,7 @@ export type NavId =
   | "pipeline"
   | "models"
   | "scoring"
+  | "eval"
   | "warehouse"
   | "runs"
   | "settings";
@@ -42,6 +44,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
       { id: "pipeline", label: "Pipeline", icon: GitBranch },
       { id: "models", label: "Models", icon: Boxes },
       { id: "scoring", label: "Scoring", icon: Zap },
+      { id: "eval", label: "Eval", icon: MailCheck },
     ],
   },
   {

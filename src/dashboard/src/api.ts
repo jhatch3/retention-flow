@@ -183,6 +183,99 @@ export interface EvalModel {
   created_at?: string;
 }
 
+// ─── Triage Inbox ────────────────────────────────────────────────────────
+export type RiskTier = "crit" | "high" | "med" | "low";
+export type FilterKey = "all" | "crit" | "high" | "med";
+
+export interface InboxCustomerSummary {
+  customer_unique_id: string;
+  display_name: string;
+  city: string;
+  ltv_brl: number;
+  risk: number;
+  tier: RiskTier;
+  recency_days: number;
+  reviews_avg: number;
+  delivery_avg_days: number;
+  orders_lifetime: number;
+  joined_human: string;
+  last_order_label: string;
+  top_driver: string;
+  status: "open" | "sent" | "snoozed";
+  email_sent_at: string | null;
+}
+
+export interface InboxCustomerList {
+  customers: InboxCustomerSummary[];
+  totals: {
+    all: number;
+    crit: number;
+    high: number;
+    med: number;
+    low: number;
+    revenue_at_risk_brl: number;
+  };
+  scored_at: string;
+  model_version: string;
+  threshold: number;
+}
+
+export interface InboxDriver {
+  feature: string;
+  value: string;
+  contrib: number;
+  why: string;
+}
+
+export interface InboxEvent {
+  ts: string;
+  ts_human: string;
+  title: string;
+  note: string | null;
+  tag: "risk" | "neutral" | "pos";
+}
+
+export interface InboxEmailDraft {
+  generated_at: string;
+  generated_by: string;
+  persona: string;
+  grounded_on: string;
+  subject: string;
+  body: string;
+  to: string;
+  from_name: string;
+}
+
+export interface InboxEval {
+  distilbert_score: number;
+  distilbert_ms: number;
+  judge_score: number;
+  judge_ms: number;
+  pass_threshold: number;
+  passed: boolean;
+  agreement_delta: number;
+}
+
+export interface InboxPlay {
+  id: string;
+  name: string;
+  active: boolean;
+  save_rate_pct: number;
+  sample_n: number;
+}
+
+export interface InboxCustomerDetail {
+  summary: InboxCustomerSummary;
+  drivers: InboxDriver[];
+  history: InboxEvent[];
+  email: InboxEmailDraft;
+  eval: InboxEval;
+  plays: InboxPlay[];
+  cohort_label: string;
+  cohort_save_rate_pct: number;
+  cohort_n: number;
+}
+
 async function request<T>(path: string): Promise<T> {
   const res = await fetch(path);
   if (!res.ok) throw new Error(`${path} → ${res.status}`);
@@ -204,4 +297,12 @@ export const api = {
   shap: () => request<ShapData>("/api/shap"),
   runs: () => request<Runs>("/api/runs"),
   evalModel: () => request<EvalModel>("/api/eval/model"),
+  inbox: {
+    customers: (filter: FilterKey = "all") =>
+      request<InboxCustomerList>(`/api/inbox/customers?filter=${filter}`),
+    customer: (id: string) =>
+      request<InboxCustomerDetail>(
+        `/api/inbox/customers/${encodeURIComponent(id)}`,
+      ),
+  },
 };

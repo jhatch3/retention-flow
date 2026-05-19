@@ -6,6 +6,7 @@ import {
   Clock,
   Database,
   GitBranch,
+  Inbox,
   LayoutGrid,
   Loader2,
   MailCheck,
@@ -21,6 +22,7 @@ import { Logo } from "./Logo";
 import { cx } from "./lib";
 
 export type NavId =
+  | "inbox"
   | "overview"
   | "pipeline"
   | "models"
@@ -40,6 +42,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
   {
     group: "Workspace",
     items: [
+      { id: "inbox", label: "Inbox", icon: Inbox },
       { id: "overview", label: "Overview", icon: LayoutGrid },
       { id: "pipeline", label: "Pipeline", icon: GitBranch },
       { id: "models", label: "Models", icon: Boxes },
@@ -64,10 +67,12 @@ export function Sidebar({
   active,
   onChange,
   collapsed,
+  badges,
 }: {
   active: NavId;
   onChange: (id: NavId) => void;
   collapsed: boolean;
+  badges?: Partial<Record<NavId, number>>;
 }) {
   return (
     <aside
@@ -128,6 +133,11 @@ export function Sidebar({
                         )}
                       />
                       {!collapsed && <span className="truncate">{item.label}</span>}
+                      {!collapsed && !!badges?.[item.id] && (
+                        <span className="ml-auto rounded-full bg-[var(--accent)] px-1.5 py-px text-[10px] font-semibold tabular-nums text-[var(--on-accent)]">
+                          {badges[item.id]}
+                        </span>
+                      )}
                     </button>
                   </li>
                 );

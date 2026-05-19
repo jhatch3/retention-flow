@@ -28,6 +28,38 @@
     --font-mono: "JetBrains Mono", ui-monospace, monospace;
   }
 
+  /* Light theme — scoped to the Triage Inbox route via data-theme on <main>.
+     Overrides the dark :root tokens for that subtree only; the cross-route
+     sidebar/top bar keep the dark scheme. */
+  [data-theme="light"] {
+    --bg:             #f0eee9;
+    --surface:        #ffffff;
+    --surface-soft:   #fbf9f4;
+    --surface-mute:   #f5f1e8;
+    --line:           #e6e1d8;
+    --line-soft:      #efeae0;
+    --fg:             #1c1a17;
+    --fg-soft:        #3a342d;
+    --fg-mute:        #6b6358;
+    --muted:          #8a8074;
+    --accent:         #c44a2d;
+    --accent-hov:     #b03d24;
+    --on-accent:      #ffffff;
+    --risk:           #c44a2d;
+    --risk-bg:        #f7e3da;
+    --warn:           #b07a1f;
+    --warn-bg:        #f4e8cf;
+    --ok:             #3d7a4e;
+    --ok-bg:          #dee9d8;
+    --info:           #2c5f7c;
+    --info-bg:        #e1ebf2;
+    --font-serif:     Georgia, "Iowan Old Style", Charter, serif;
+    background: var(--bg);
+    color: var(--fg);
+  }
+  [data-theme="light"] ::-webkit-scrollbar-thumb { background: #d8d2c6; }
+  [data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: #c4bdae; }
+
   html, body { background: var(--bg); color: var(--fg); }
   body {
     font-family: var(--font-sans);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import type {
   EvalModel,
@@ -24,8 +24,12 @@ import {
   ScoringPage,
   WarehousePage,
 } from "./pages";
+import { cx } from "./lib";
+
+const InboxPage = lazy(() => import("./inbox/InboxPage"));
 
 const BREADCRUMBS: Record<NavId, string[]> = {
+  inbox: ["Workspace", "Inbox"],
   overview: ["Workspace", "Overview"],
   pipeline: ["Workspace", "Pipeline"],
   models: ["Workspace", "Models"],
@@ -51,6 +55,7 @@ export default function App() {
   const [shap, setShap] = useState<ShapData>();
   const [runs, setRuns] = useState<Runs>();
   const [evalModel, setEvalModel] = useState<EvalModel>();
+  const [inboxCount, setInboxCount] = useState<number>();
   const [error, setError] = useState<string>();
 
   const loadAll = useCallback(() => {
@@ -63,6 +68,10 @@ export default function App() {
     api.shap().then(setShap).catch((e) => setError(String(e)));
     api.runs().then(setRuns).catch((e) => setError(String(e)));
     api.evalModel().then(setEvalModel).catch((e) => setError(String(e)));
+    api.inbox
+      .customers()
+      .then((d) => setInboxCount(d.totals.all))
+      .catch(() => undefined);
   }, []);
 
   useEffect(loadAll, [loadAll]);
@@ -113,6 +122,18 @@ export default function App() {
 
   function page() {
     switch (active) {
+      case "inbox":
+        return (
+          <Suspense
+            fallback={
+              <div className="grid h-full place-items-center text-[13px] text-[var(--muted)]">
+                Loading…
+              </div>
+            }
+          >
+            <InboxPage />
+          </Suspense>
+        );
       case "overview":
         return (
           <OverviewPage
@@ -165,9 +186,21 @@ export default function App() {
     }
   }
 
+  const isInbox = active === "inbox";
+
   return (
-    <div className="flex min-h-screen bg-[var(--bg)] text-[var(--fg)]">
-      <Sidebar active={active} onChange={setActive} collapsed={collapsed} />
+    <div
+      className={cx(
+        "flex bg-[var(--bg)] text-[var(--fg)]",
+        isInbox ? "h-screen" : "min-h-screen",
+      )}
+    >
+      <Sidebar
+        active={active}
+        onChange={setActive}
+        collapsed={collapsed}
+        badges={{ inbox: inboxCount }}
+      />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar
@@ -178,8 +211,14 @@ export default function App() {
           onToggleSidebar={() => setCollapsed((c) => !c)}
         />
 
-        <main className="flex-1 px-6 py-6 lg:px-8 lg:py-8">
-          {error && (
+        <main
+          data-theme={isInbox ? "light" : undefined}
+          className={cx(
+            "min-h-0 flex-1",
+            isInbox ? "overflow-hidden" : "px-6 py-6 lg:px-8 lg:py-8",
+          )}
+        >
+          {error && !isInbox && (
             <div className="mb-6 rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-[12.5px] text-rose-200">
               {error} — is the API running on :8000?
             </div>

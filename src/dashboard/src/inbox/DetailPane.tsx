@@ -3,6 +3,8 @@
 import type { InboxCustomerDetail } from "../api";
 import { CustomerHead } from "./CustomerHead";
 import { EmailDraftView } from "./EmailDraftView";
+import { HistoryView } from "./HistoryView";
+import { ReasoningView } from "./ReasoningView";
 import { TabBar } from "./TabBar";
 import type { InboxTab } from "./TabBar";
 import { Sk } from "./ui";
@@ -61,10 +63,10 @@ export function DetailPane({
                 isSent={isSent}
                 onSend={onSend}
               />
+            ) : tab === "reasoning" ? (
+              <ReasoningView detail={detail} />
             ) : (
-              <p className="text-[12.5px] text-[var(--muted)]">
-                This tab arrives in PR5.
-              </p>
+              <HistoryView detail={detail} />
             )}
           </div>
         </>

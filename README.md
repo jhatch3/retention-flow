@@ -197,19 +197,22 @@ pytest                    # runs tests/
 
 ## Evaluation Framework
 
-### Quality dimensions
+### Quality grade
 
-Every email is scored on four dimensions:
-- **Personalization**: Does it reference the customer's specific risk factors?
-- **Tone appropriateness**: Does the tone match the risk level?
-- **Call-to-action clarity**: Is the next step explicit and actionable?
-- **Length appropriateness**: Is it the right length for the message?
+Every generated email is scored on a single **1–5 overall quality grade**.
+Tier 1 — a fine-tuned DistilBERT classifier (`src/backend/eval/distilbert/`) —
+grades every email inline in tens of milliseconds. Tier 2, an LLM-as-judge,
+re-grades on the same 1–5 scale. An email **passes** when its grade clears the
+quality bar.
 
-Full eval rubric in [`docs/eval_rubric.md`](docs/eval_rubric.md).
+DistilBERT is fine-tuned (PyTorch + Hugging Face) on a Claude-generated corpus
+of `{email, score}` pairs, then registered in MLflow alongside the churn model.
 
 ### Disagreement analysis
 
-When the DistilBERT classifier and Claude judge disagree, that's a signal worth investigating. Patterns we've identified are documented in [`docs/eval_analysis.md`](docs/eval_analysis.md).
+When the DistilBERT classifier and the Claude judge assign different grades,
+that gap is a signal worth investigating — the two tiers share the 1–5 scale
+precisely so their grades are directly comparable.
 
 ---
 
@@ -253,7 +256,8 @@ retention-flow/
 │   │   │   ├── loader/     # one-time CSV -> raw schema migration
 │   │   │   └── simulation/ # signal-driven synthetic repeat-order generator
 │   │   ├── ml/             # XGBoost churn model — data prep + training
-│   │   └── api/            # FastAPI dashboard backend + batch scoring
+│   │   ├── api/            # FastAPI dashboard backend + batch scoring
+│   │   └── eval/           # email-quality eval — fine-tuned DistilBERT (tier 1)
 │   ├── transform/          # dbt project
 │   │   └── models/
 │   │       ├── staging/        # stg_* views (silver) — raw + synthetic union
@@ -270,7 +274,7 @@ retention-flow/
 ├── docker-compose.yml      # Local Postgres
 └── pyproject.toml
 
-Planned (see Roadmap): src/backend/{llm,eval}
+Planned (see Roadmap): src/backend/llm
 ```
 
 ---

@@ -25,10 +25,13 @@ if TYPE_CHECKING:
 class EvalScore(Base, TimestampMixin):
     """A quality score for a generated email from one tier of the eval stack.
 
-    Each email is scored twice -- once by the fine-tuned DistilBERT classifier
-    and once by the LLM-as-judge -- so the unique constraint is on
-    ``(email_id, evaluator)``. ``judge_model`` records which model produced an
-    ``llm_judge`` score and is null for ``distilbert`` rows.
+    Each email is scored at most twice -- once by the fine-tuned DistilBERT
+    classifier and once by the LLM-as-judge -- so the unique constraint is on
+    ``(email_id, evaluator)``. Both tiers emit a single ``overall_score`` (a
+    1-5 quality grade) and a ``passed`` gate on the same scale, which keeps
+    their grades directly comparable for disagreement analysis. ``judge_model``
+    records which model produced an ``llm_judge`` score and is null for
+    ``distilbert`` rows.
     """
 
     __tablename__ = "eval_scores"
@@ -47,12 +50,7 @@ class EvalScore(Base, TimestampMixin):
         SAEnum(Evaluator, name="evaluator", schema="serving")
     )
 
-    # --- Four quality dimensions (see docs/eval_rubric.md) ---------------
-    personalization: Mapped[float] = mapped_column(Float)
-    tone_appropriateness: Mapped[float] = mapped_column(Float)
-    cta_clarity: Mapped[float] = mapped_column(Float)
-    length_appropriateness: Mapped[float] = mapped_column(Float)
-
+    # Overall email-quality grade (1-5) and the inline pass/fail gate.
     overall_score: Mapped[float] = mapped_column(Float)
     passed: Mapped[bool] = mapped_column(Boolean)
 

@@ -1,0 +1,27 @@
+version: 2
+
+models:
+  - name: stg_orders
+    description: Typed order headers; one row per order.
+    columns:
+      - name: order_id
+        tests: [not_null, unique]
+      - name: customer_id
+        tests: [not_null]
+  - name: stg_customers
+    description: Olist customer instances; customer_id is per-order.
+    columns:
+      - name: customer_id
+        tests: [not_null, unique]
+      - name: customer_unique_id
+        tests: [not_null]
+  - name: stg_order_reviews
+    description: Order reviews, deduplicated to one row per review_id.
+    columns:
+      - name: review_id
+        tests: [not_null, unique]
+  - name: stg_products
+    description: Products reduced to id and category.
+    columns:
+      - name: product_id
+        tests: [not_null, unique]

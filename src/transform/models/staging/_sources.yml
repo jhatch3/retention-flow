@@ -1,0 +1,32 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: raw
+    description: >
+      Verbatim, all-text copies of the 9 Olist CSVs, loaded once by the
+      bootstrap migration (src/backend/db/loader). Not refreshed by the
+      recurring pipeline.
+    tables:
+      - name: olist_orders
+      - name: olist_customers
+      - name: olist_order_items
+      - name: olist_order_payments
+      - name: olist_order_reviews
+      - name: olist_products
+      - name: olist_sellers
+      - name: olist_geolocation
+      - name: product_category_name_translation
+
+  - name: synthetic
+    schema: synthetic
+    description: >
+      Synthetic repeat orders from the signal-driven simulation
+      (src/backend/db/simulation). Unioned with raw.* by the staging models.
+      See docs/adr/0004-synthetic-repeat-order-augmentation.md.
+    tables:
+      - name: customers
+      - name: orders
+      - name: order_items
+      - name: order_payments
+      - name: order_reviews

@@ -1,0 +1,2 @@
+# Runtime logs and the local MLflow tracking store (logs/mlruns/) live here.
+# Contents are gitignored; this file keeps the directory in the repo.

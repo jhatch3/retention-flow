@@ -1,0 +1,28 @@
+version: 2
+
+models:
+  - name: customer_features
+    description: >
+      Gold table — one feature snapshot per customer as of the snapshot date,
+      carrying the future-window churn label and a deterministic,
+      churn-stratified train/test/validation split.
+    columns:
+      - name: customer_unique_id
+        description: Stable customer identity; natural key shared with serving.predictions.
+        tests: [not_null, unique]
+      - name: snapshot_date
+        tests: [not_null]
+      - name: recency_days
+        description: Days from last order to the snapshot date.
+        tests: [not_null]
+      - name: frequency
+        tests: [not_null]
+      - name: churned
+        description: TRUE if the customer placed no order within the horizon.
+        tests: [not_null]
+      - name: split
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["train", "test", "validation"]

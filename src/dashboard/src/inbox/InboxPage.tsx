@@ -35,10 +35,67 @@ export function InboxPage() {
     setSent((prev) => new Set(prev).add(id));
   }, []);
 
+  // Keyboard: ↑/↓ (j/k) move selection, 1/2/3 switch tabs, ⌘/Ctrl+Enter
+  // sends. Ignored while typing in a field or the editable email body.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const el = document.activeElement as HTMLElement | null;
+      if (
+        el &&
+        (el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        if (selectedId && !sent.has(selectedId)) {
+          e.preventDefault();
+          handleSend(selectedId);
+        }
+        return;
+      }
+      if (e.key === "1") return setEmailTab("draft");
+      if (e.key === "2") return setEmailTab("reasoning");
+      if (e.key === "3") return setEmailTab("history");
+
+      const down = e.key === "ArrowDown" || e.key === "j";
+      const up = e.key === "ArrowUp" || e.key === "k";
+      const rows = list.data?.customers ?? [];
+      if ((down || up) && rows.length) {
+        e.preventDefault();
+        const idx = rows.findIndex((r) => r.customer_unique_id === selectedId);
+        const base = idx < 0 ? 0 : idx;
+        const next = down
+          ? (base + 1) % rows.length
+          : (base - 1 + rows.length) % rows.length;
+        setSelectedId(rows[next].customer_unique_id);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [list.data, selectedId, sent, handleSend]);
+
   const isSent: boolean =
     (!!selectedId && sent.has(selectedId)) ||
     detail.data?.summary.status === "sent" ||
     false;
+
+  // Empty queue — no at-risk customers at all (handoff §8.1).
+  if (list.data && list.data.totals.all === 0) {
+    return (
+      <div className="grid h-full place-items-center bg-[var(--surface-soft)]">
+        <div className="rounded-lg border border-[var(--line)] bg-[var(--ok-bg)] px-8 py-7 text-center">
+          <div className="text-[15px] font-semibold text-[var(--ok)]">
+            ✓ Nobody's at risk right now
+          </div>
+          <p className="mt-1.5 text-[12.5px] text-[var(--fg-mute)]">
+            Next score run: tonight at 02:00 BRT.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0">

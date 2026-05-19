@@ -74,3 +74,78 @@
   animation: dag-flow 0.55s linear infinite;
 }
 
+/* Run-report modal entrance */
+@keyframes report-pop {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.report-pop {
+  animation: report-pop 0.18s ease-out;
+}
+
+/* Warehouse explorer — table cards rise in with a slight stagger */
+@keyframes wh-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.wh-rise {
+  animation: wh-rise 0.36s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Data grid fades in once its sample resolves */
+@keyframes wh-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.wh-fade {
+  animation: wh-fade 0.22s ease-out;
+}
+
+/* Fullscreen table modal — enter and exit */
+@keyframes wh-modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+.wh-modal-in {
+  animation: wh-modal-in 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes wh-modal-out {
+  to {
+    opacity: 0;
+    transform: scale(0.97) translateY(8px);
+  }
+}
+.wh-modal-out {
+  animation: wh-modal-out 0.16s ease-in forwards;
+}
+@keyframes wh-backdrop-out {
+  to {
+    opacity: 0;
+  }
+}
+.wh-backdrop-out {
+  animation: wh-backdrop-out 0.16s ease-in forwards;
+}
+

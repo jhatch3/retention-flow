@@ -170,10 +170,10 @@ unzip data/raw_data.zip -d data/raw            # extract the 9 Olist CSVs
 
 PYTHONPATH=src python -m backend.db.loader.raw_loader         # CSVs -> raw schema
 PYTHONPATH=src python -m backend.db.simulation.repeat_orders  # synthetic repeat orders
-dbt build --project-dir transform --profiles-dir transform   # silver views + gold + tests
+dbt build --project-dir src/transform --profiles-dir src/transform   # silver views + gold + tests
 ```
 
-Explore the orchestration graph with `cd orchestration && dagster dev`.
+Explore the orchestration graph with `cd src/orchestration && dagster dev`.
 
 ### Dashboard
 
@@ -182,7 +182,7 @@ run batch scoring with the champion model:
 
 ```bash
 PYTHONPATH=src uvicorn backend.api.app:app --port 8000   # FastAPI backend
-cd dashboard && npm install && npm run dev               # UI at localhost:5173
+cd src/dashboard && npm install && npm run dev           # UI at localhost:5173
 ```
 
 ## Evaluation Framework
@@ -237,20 +237,22 @@ Olist has almost no repeat customers (~3%), so an honest churn label is ~98% pos
 
 ```
 retention-flow/
-├── src/backend/
-│   ├── db/                 # database access — engine + config
-│   │   ├── loader/         # one-time CSV -> raw schema migration
-│   │   └── simulation/     # signal-driven synthetic repeat-order generator
-│   ├── ml/                 # XGBoost churn model — data prep + training
-│   └── api/                # FastAPI dashboard backend + batch scoring
-├── transform/              # dbt project
-│   └── models/
-│       ├── staging/        # stg_* views (silver) — raw + synthetic union
-│       ├── intermediate/   # int_customer_orders (wide order table)
-│       └── marts/          # customer_features (gold table)
-├── orchestration/          # Dagster project — dbt assets + nightly schedule
-├── dashboard/              # React + Tailwind + TypeScript dashboard (Vite)
+├── src/
+│   ├── backend/
+│   │   ├── db/             # database access — engine + config
+│   │   │   ├── loader/     # one-time CSV -> raw schema migration
+│   │   │   └── simulation/ # signal-driven synthetic repeat-order generator
+│   │   ├── ml/             # XGBoost churn model — data prep + training
+│   │   └── api/            # FastAPI dashboard backend + batch scoring
+│   ├── transform/          # dbt project
+│   │   └── models/
+│   │       ├── staging/        # stg_* views (silver) — raw + synthetic union
+│   │       ├── intermediate/   # int_customer_orders (wide order table)
+│   │       └── marts/          # customer_features (gold table)
+│   ├── orchestration/      # Dagster project — dbt assets + nightly schedule
+│   └── dashboard/          # React + Tailwind + TypeScript dashboard (Vite)
 ├── notebooks/              # EDA + experimentation (churn_xgboost.ipynb)
+├── logs/mlruns/            # local MLflow tracking store (gitignored)
 ├── data/raw/               # Olist CSVs (gitignored)
 ├── docs/adr/               # Architecture decision records
 ├── CONTEXT.md              # Domain glossary

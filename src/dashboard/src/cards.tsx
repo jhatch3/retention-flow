@@ -7,6 +7,7 @@ import type {
   ModelRegistry,
   PipelineStatus,
   Predictions,
+  ShapData,
   WarehouseData,
 } from "./api";
 import { Button, Card, Delta, Kpi, MetricCell, Pill, Skeleton, Stat2 } from "./ui";
@@ -108,6 +109,7 @@ export function ChurnHero({
     <Card
       title="Customer churn"
       subtitle="180-day observation horizon · scored nightly"
+      className="h-full"
       pad={false}
       right={
         <div className="flex items-center gap-1 rounded-lg border border-[var(--line)] bg-white/[0.02] p-0.5">
@@ -206,6 +208,7 @@ export function PipelineCard({ pipeline }: { pipeline?: PipelineStatus }) {
     <Card
       title="Pipeline"
       subtitle="dbt · medallion build"
+      className="h-full"
       icon={<GitBranch size={14} />}
       right={
         <>
@@ -453,6 +456,31 @@ export function ModelRegistryCard({ models }: { models?: ModelRegistry }) {
 }
 
 // ─── Feature importance card ─────────────────────────────────────────────
+export function ShapCard({ shap }: { shap?: ShapData }) {
+  return (
+    <Card
+      title="SHAP attribution"
+      subtitle="Champion · mean |SHAP| over the scored gold table"
+      icon={<Sparkles size={14} />}
+    >
+      {!shap ? (
+        <Skeleton className="h-72 w-full" />
+      ) : !shap.available ? (
+        <p className="text-sm text-[var(--muted)]">
+          No SHAP yet — run batch scoring to compute attributions.
+        </p>
+      ) : (
+        <FeatureImportanceList
+          features={shap.global.features.map((f) => ({
+            feature: f.feature,
+            importance: f.mean_abs_shap,
+          }))}
+        />
+      )}
+    </Card>
+  );
+}
+
 export function FeatureImportanceCard({
   fi,
   championVersion,

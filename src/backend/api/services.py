@@ -9,14 +9,14 @@ from pathlib import Path
 import mlflow
 import mlflow.xgboost
 from mlflow.tracking import MlflowClient
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from ..db.session import engine
 from ..ml.data import FEATURE_COLUMNS
 from ..ml.train import CHAMPION_ALIAS, EXPERIMENT, MLFLOW_URI, REGISTERED_MODEL
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-RUN_RESULTS = REPO_ROOT / "transform" / "target" / "run_results.json"
+RUN_RESULTS = REPO_ROOT / "src" / "transform" / "target" / "run_results.json"
 
 
 # --------------------------------------------------------------------------
@@ -100,6 +100,94 @@ def warehouse_overview() -> dict:
         ],
         "raw_orders": int(raw_orders),
         "synthetic_orders": int(synthetic_orders),
+    }
+
+
+# --------------------------------------------------------------------------
+# Warehouse table explorer
+# --------------------------------------------------------------------------
+# Schemas exposed in the dashboard's Warehouse tab — the medallion layers,
+# the synthetic augmentation, and the model-serving outputs.
+WAREHOUSE_SCHEMAS = ("raw", "synthetic", "analytics", "serving")
+MAX_SAMPLE_ROWS = 500
+
+
+def _quote_ident(identifier: str) -> str:
+    """Quote a SQL identifier, escaping any embedded double quotes."""
+    return '"' + identifier.replace('"', '""') + '"'
+
+
+def warehouse_tables() -> dict:
+    """Every table and view in the warehouse schemas, with columns + row counts."""
+    objects_stmt = text(
+        "select table_schema, table_name, table_type "
+        "from information_schema.tables where table_schema in :schemas "
+        "order by table_schema, table_name"
+    ).bindparams(bindparam("schemas", expanding=True))
+
+    tables: list[dict] = []
+    with engine.connect() as conn:
+        objects = conn.execute(
+            objects_stmt, {"schemas": list(WAREHOUSE_SCHEMAS)}
+        ).mappings().all()
+
+        for obj in objects:
+            schema, name = obj["table_schema"], obj["table_name"]
+            columns = conn.execute(text(
+                "select column_name, data_type from information_schema.columns "
+                "where table_schema = :s and table_name = :t "
+                "order by ordinal_position"
+            ), {"s": schema, "t": name}).mappings().all()
+
+            row_count = conn.execute(text(
+                f"select count(*) from {_quote_ident(schema)}.{_quote_ident(name)}"
+            )).scalar_one()
+
+            tables.append({
+                "schema": schema,
+                "name": name,
+                "kind": "view" if obj["table_type"] == "VIEW" else "table",
+                "row_count": int(row_count),
+                "columns": [
+                    {"name": c["column_name"], "type": c["data_type"]}
+                    for c in columns
+                ],
+            })
+
+    return {"tables": tables}
+
+
+def warehouse_sample(schema: str, table: str, limit: int) -> dict:
+    """Return the first `limit` rows of a single warehouse table or view."""
+    if schema not in WAREHOUSE_SCHEMAS:
+        return {"error": f"'{schema}' is not a warehouse schema"}
+    limit = max(1, min(limit, MAX_SAMPLE_ROWS))
+
+    with engine.connect() as conn:
+        # Confirm the object exists before interpolating its name into SQL.
+        exists = conn.execute(text(
+            "select 1 from information_schema.tables "
+            "where table_schema = :s and table_name = :t"
+        ), {"s": schema, "t": table}).first()
+        if not exists:
+            return {"error": f"table '{schema}.{table}' was not found"}
+
+        result = conn.execute(
+            text(
+                f"select * from {_quote_ident(schema)}.{_quote_ident(table)} "
+                f"limit :n"
+            ),
+            {"n": limit},
+        )
+        columns = list(result.keys())
+        rows = [list(row) for row in result.all()]
+
+    return {
+        "schema": schema,
+        "table": table,
+        "columns": columns,
+        "rows": rows,
+        "row_limit": limit,
     }
 
 

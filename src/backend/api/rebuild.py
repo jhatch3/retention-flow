@@ -18,7 +18,7 @@ from ..db.session import engine
 from .runs import record_run
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-TRANSFORM_DIR = REPO_ROOT / "transform"
+TRANSFORM_DIR = REPO_ROOT / "src" / "transform"
 
 _NODE = re.compile(r"(\d+) of (\d+)")
 _KEEP = (" OK ", " PASS ", " ERROR", " FAIL", "Completed successfully", "Done.")
@@ -87,3 +87,72 @@ def rebuild_events() -> Iterator[dict]:
     yield ev("done", f"Rebuilt {int(rows):,} gold rows in {total:.1f}s", 1.0,
              done=True, gold_rows=int(rows), total_seconds=total)
     record_run("rebuild", "success", t0, f"{int(rows):,} gold rows · 26 dbt nodes")
+
+
+def full_pipeline_events() -> Iterator[dict]:
+    """Run the full pipeline — dbt rebuild → model training → batch scoring —
+    streaming progress, and ending with a summary report.
+    """
+    from ..ml.train import train_and_log
+    from .scoring import score_events
+
+    t0 = time.perf_counter()
+    report: dict = {}
+
+    def ev(stage: str, message: str, progress: float, **extra) -> dict:
+        return {
+            "stage": stage,
+            "message": message,
+            "progress": progress,
+            "elapsed": round(time.perf_counter() - t0, 1),
+            "ts": datetime.now(timezone.utc).strftime("%H:%M:%S"),
+            **extra,
+        }
+
+    yield ev("start", "Starting full pipeline run", 0.01, phase="dbt")
+
+    # Phase 1 — dbt rebuild (0.00 – 0.45)
+    for e in rebuild_events():
+        if e.get("done"):
+            if e.get("error"):
+                yield ev("error", "Pipeline failed at the dbt build", 1.0,
+                         done=True, error=True)
+                record_run("pipeline", "error", t0, "dbt build failed")
+                return
+            report["dbt"] = {
+                "gold_rows": e.get("gold_rows"),
+                "seconds": e.get("total_seconds"),
+            }
+        else:
+            yield {**e, "progress": round(e["progress"] * 0.45, 3), "phase": "dbt"}
+
+    # Phase 2 — train + register the champion model (0.45 – 0.65)
+    yield ev("train", "Training the churn model…", 0.5, phase="train")
+    out = train_and_log(run_tags={"trigger": "dashboard-pipeline-run"})
+    val = out["results"]["validation"]
+    report["model"] = {
+        "version": out["model_version"],
+        "roc_auc": round(val["roc_auc"], 3),
+        "pr_auc": round(val["pr_auc"], 3),
+        "threshold": out["threshold"],
+    }
+    yield ev(
+        "train",
+        f"Registered {out['model_name']} v{out['model_version']} · "
+        f"ROC-AUC {val['roc_auc']:.3f}",
+        0.65,
+        phase="train",
+    )
+
+    # Phase 3 — batch scoring + SHAP (0.65 – 1.00)
+    for e in score_events():
+        if e.get("done"):
+            report["scoring"] = e["result"]
+        else:
+            yield {**e, "progress": round(0.65 + e["progress"] * 0.34, 3), "phase": "score"}
+
+    total = round(time.perf_counter() - t0, 1)
+    report["total_seconds"] = total
+    yield ev("done", f"Full pipeline complete in {total:.0f}s", 1.0,
+             done=True, phase="score", report=report)
+    record_run("pipeline", "success", t0, f"dbt + train + score · {total:.0f}s")

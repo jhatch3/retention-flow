@@ -32,6 +32,34 @@ export interface WarehouseData {
   synthetic_orders: number;
 }
 
+export interface WarehouseColumn {
+  name: string;
+  type: string;
+}
+
+export interface WarehouseTable {
+  schema: string;
+  name: string;
+  kind: "table" | "view";
+  row_count: number;
+  columns: WarehouseColumn[];
+}
+
+export interface WarehouseTableList {
+  tables: WarehouseTable[];
+}
+
+export type WarehouseValue = string | number | boolean | null;
+
+export interface WarehouseSample {
+  schema: string;
+  table: string;
+  columns: string[];
+  rows: WarehouseValue[][];
+  row_limit: number;
+  error?: string;
+}
+
 export interface ModelVersion {
   version: string;
   is_champion: boolean;
@@ -105,6 +133,40 @@ export interface Runs {
   runs: RunRecord[];
 }
 
+export interface ShapContribution {
+  feature: string;
+  shap_value: number;
+  feature_value: number | null;
+  rank: number;
+}
+
+export interface ShapCustomer {
+  customer_unique_id: string;
+  churn_probability: number;
+  contributions: ShapContribution[];
+}
+
+export interface ShapData {
+  available: boolean;
+  global: {
+    base_value: number | null;
+    features: { feature: string; mean_abs_shap: number }[];
+  };
+  customers: ShapCustomer[];
+}
+
+export interface PipelineReport {
+  dbt?: { gold_rows: number; seconds: number };
+  model?: { version: string; roc_auc: number; pr_auc: number; threshold: number };
+  scoring?: {
+    scored_count: number;
+    predicted_churn: number;
+    threshold: number;
+    model_version: string;
+  };
+  total_seconds: number;
+}
+
 async function request<T>(path: string): Promise<T> {
   const res = await fetch(path);
   if (!res.ok) throw new Error(`${path} → ${res.status}`);
@@ -114,8 +176,15 @@ async function request<T>(path: string): Promise<T> {
 export const api = {
   pipeline: () => request<PipelineStatus>("/api/pipeline"),
   data: () => request<WarehouseData>("/api/data"),
+  warehouseTables: () => request<WarehouseTableList>("/api/warehouse/tables"),
+  warehouseSample: (schema: string, table: string, limit = 25) =>
+    request<WarehouseSample>(
+      `/api/warehouse/sample?schema=${encodeURIComponent(schema)}` +
+        `&table=${encodeURIComponent(table)}&limit=${limit}`,
+    ),
   models: () => request<ModelRegistry>("/api/models"),
   featureImportance: () => request<FeatureImportance>("/api/feature-importance"),
   predictions: () => request<Predictions>("/api/predictions"),
+  shap: () => request<ShapData>("/api/shap"),
   runs: () => request<Runs>("/api/runs"),
 };

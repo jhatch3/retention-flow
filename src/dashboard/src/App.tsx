@@ -3,11 +3,14 @@ import { api } from "./api";
 import type {
   FeatureImportance,
   ModelRegistry,
+  PipelineReport,
   PipelineStatus,
   Predictions,
   Runs,
+  ShapData,
   WarehouseData,
 } from "./api";
+import { RunReport } from "./RunReport";
 import { Sidebar, TopBar } from "./shell";
 import type { NavId } from "./shell";
 import {
@@ -35,12 +38,14 @@ export default function App() {
   const [collapsed, setCollapsed] = useState(false);
   const [running, setRunning] = useState(false);
   const [dagLive, setDagLive] = useState<Record<string, string>>({});
+  const [report, setReport] = useState<PipelineReport>();
 
   const [pipeline, setPipeline] = useState<PipelineStatus>();
   const [data, setData] = useState<WarehouseData>();
   const [models, setModels] = useState<ModelRegistry>();
   const [fi, setFi] = useState<FeatureImportance>();
   const [predictions, setPredictions] = useState<Predictions>();
+  const [shap, setShap] = useState<ShapData>();
   const [runs, setRuns] = useState<Runs>();
   const [error, setError] = useState<string>();
 
@@ -51,34 +56,35 @@ export default function App() {
     api.models().then(setModels).catch((e) => setError(String(e)));
     api.featureImportance().then(setFi).catch((e) => setError(String(e)));
     api.predictions().then(setPredictions).catch((e) => setError(String(e)));
+    api.shap().then(setShap).catch((e) => setError(String(e)));
     api.runs().then(setRuns).catch((e) => setError(String(e)));
   }, []);
 
   useEffect(loadAll, [loadAll]);
 
-  // "Run pipeline" — drop analytics + rebuild via the SSE rebuild stream.
-  // Per-dbt-node completions feed the live pipeline DAG.
+  // "Run pipeline" — the full pipeline (dbt rebuild → train → score) over SSE.
+  // dbt-node completions and the train/score phases feed the live DAG; the
+  // final report opens the run-report modal.
   function runPipeline() {
     setRunning(true);
     setDagLive({});
-    const es = new EventSource("/api/pipeline/rebuild/stream");
+    setReport(undefined);
+    const es = new EventSource("/api/pipeline/run/stream");
     es.onmessage = (e) => {
       const evt = JSON.parse(e.data) as {
         message?: string;
-        stage?: string;
+        phase?: string;
         done?: boolean;
+        report?: PipelineReport;
       };
       const match = /analytics\.(\w+)/.exec(evt.message ?? "");
-      if (match) {
-        const node = match[1];
-        setDagLive((s) => ({
-          ...s,
-          [node]: evt.stage === "error" ? "error" : "done",
-        }));
-      }
+      if (match) setDagLive((s) => ({ ...s, [match[1]]: "done" }));
+      if (evt.phase === "train") setDagLive((s) => ({ ...s, churn_model: "running" }));
+      if (evt.phase === "score") setDagLive((s) => ({ ...s, churn_model: "done" }));
       if (evt.done) {
         es.close();
         setRunning(false);
+        if (evt.report) setReport(evt.report);
         loadAll();
       }
     };
@@ -90,6 +96,7 @@ export default function App() {
 
   const handleScored = useCallback((p: Predictions) => {
     setPredictions(p);
+    api.shap().then(setShap).catch(() => undefined);
     api.runs().then(setRuns).catch(() => undefined);
   }, []);
 
@@ -110,6 +117,7 @@ export default function App() {
             fi={fi}
             predictions={predictions}
             runs={runs?.runs}
+            shap={shap}
             threshold={threshold}
             modelVersion={modelVersion}
             running={running}
@@ -128,7 +136,7 @@ export default function App() {
           />
         );
       case "models":
-        return <ModelsPage models={models} fi={fi} />;
+        return <ModelsPage models={models} fi={fi} shap={shap} />;
       case "warehouse":
         return <WarehousePage data={data} />;
       case "runs":
@@ -137,6 +145,7 @@ export default function App() {
         return (
           <ScoringPage
             predictions={predictions}
+            shap={shap}
             threshold={threshold}
             modelVersion={modelVersion}
             onScored={handleScored}
@@ -171,6 +180,9 @@ export default function App() {
           {page()}
         </main>
       </div>
+      {report && (
+        <RunReport report={report} onClose={() => setReport(undefined)} />
+      )}
     </div>
   );
 }

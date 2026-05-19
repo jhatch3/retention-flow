@@ -6,6 +6,7 @@ import type {
   PipelineStatus,
   Predictions,
   RunRecord,
+  ShapData,
   WarehouseData,
 } from "./api";
 import { PageHeader } from "./shell";
@@ -17,11 +18,13 @@ import {
   KpiRow,
   ModelRegistryCard,
   PipelineCard,
+  ShapCard,
   WarehouseCard,
 } from "./cards";
 import { AtRiskTable, RecentRunsCard } from "./tables";
 import { ScoringPanel } from "./ScoringPanel";
 import { PipelineDag } from "./PipelineDag";
+import { WarehouseTables } from "./WarehouseTables";
 
 export function OverviewPage(p: {
   data?: WarehouseData;
@@ -30,6 +33,7 @@ export function OverviewPage(p: {
   fi?: FeatureImportance;
   predictions?: Predictions;
   runs?: RunRecord[];
+  shap?: ShapData;
   threshold: number;
   modelVersion: string;
   running: boolean;
@@ -82,7 +86,11 @@ export function OverviewPage(p: {
           modelVersion={p.modelVersion}
           onScored={p.onScored}
         />
-        <AtRiskTable predictions={p.predictions} threshold={p.threshold} />
+        <AtRiskTable
+          predictions={p.predictions}
+          threshold={p.threshold}
+          shap={p.shap?.customers}
+        />
         <RecentRunsCard runs={p.runs} />
       </div>
 
@@ -134,20 +142,25 @@ export function PipelinePage({
 export function ModelsPage({
   models,
   fi,
+  shap,
 }: {
   models?: ModelRegistry;
   fi?: FeatureImportance;
+  shap?: ShapData;
 }) {
   return (
     <>
       <PageHeader
         eyebrow="Workspace"
         title="Models"
-        description="MLflow registry — champion metrics, version history, and feature importance for the churn classifier."
+        description="MLflow registry — champion metrics, version history, feature importance, and SHAP attribution for the churn classifier."
       />
       <div className="space-y-6">
         <ModelRegistryCard models={models} />
-        <FeatureImportanceCard fi={fi} championVersion={models?.champion_version} />
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <FeatureImportanceCard fi={fi} championVersion={models?.champion_version} />
+          <ShapCard shap={shap} />
+        </div>
       </div>
     </>
   );
@@ -161,7 +174,10 @@ export function WarehousePage({ data }: { data?: WarehouseData }) {
         title="Warehouse"
         description="Postgres medallion schemas — raw Olist tables, the synthetic augmentation, and the analytics gold table."
       />
-      <WarehouseCard data={data} />
+      <div className="space-y-6">
+        <WarehouseCard data={data} />
+        <WarehouseTables />
+      </div>
     </>
   );
 }
@@ -181,11 +197,13 @@ export function RunsPage({ runs }: { runs?: RunRecord[] }) {
 
 export function ScoringPage({
   predictions,
+  shap,
   threshold,
   modelVersion,
   onScored,
 }: {
   predictions?: Predictions;
+  shap?: ShapData;
   threshold: number;
   modelVersion: string;
   onScored: (p: Predictions) => void;
@@ -195,7 +213,7 @@ export function ScoringPage({
       <PageHeader
         eyebrow="Workspace"
         title="Batch scoring"
-        description="Score every customer in the gold table with the champion model. Predictions land in serving.predictions."
+        description="Score every customer in the gold table with the champion model. Predictions and SHAP land in the serving schema."
       />
       <div className="space-y-6">
         <ScoringPanel
@@ -204,7 +222,11 @@ export function ScoringPage({
           modelVersion={modelVersion}
           onScored={onScored}
         />
-        <AtRiskTable predictions={predictions} threshold={threshold} />
+        <AtRiskTable
+          predictions={predictions}
+          threshold={threshold}
+          shap={shap?.customers}
+        />
       </div>
     </>
   );

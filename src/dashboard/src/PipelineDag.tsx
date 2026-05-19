@@ -1,5 +1,5 @@
-// High-fidelity SVG asset graph of the medallion pipeline — Dagster-style
-// asset nodes with kind tags, status lines, and live state from the
+// High-fidelity SVG asset graph of the medallion pipeline — elevated service
+// cards (Railway-style), smooth connectors, live state from the
 // /api/pipeline/rebuild/stream events.
 import { Loader2, Play } from "lucide-react";
 import type { PipelineStatus, WarehouseData } from "./api";
@@ -7,14 +7,13 @@ import { Button, Card } from "./ui";
 import { cx } from "./lib";
 
 type NodeState = "idle" | "running" | "done" | "warn" | "error";
-type Kind = "source" | "view" | "table" | "model";
 
 interface DagNode {
   id: string;
   label: string;
   col: number;
   row: number;
-  kind: Kind;
+  kind: "source" | "view" | "table" | "model";
 }
 
 const STAGING = [
@@ -27,8 +26,7 @@ const STAGING = [
 ];
 
 const NODES: DagNode[] = [
-  { id: "raw", label: "raw.olist_*", col: 0, row: 0, kind: "source" },
-  { id: "synthetic", label: "synthetic.*", col: 0, row: 1, kind: "source" },
+  { id: "database", label: "database", col: 0, row: 0, kind: "source" },
   ...STAGING.map((id, row): DagNode => ({ id, label: id, col: 1, row, kind: "view" })),
   { id: "int_customer_orders", label: "int_customer_orders", col: 2, row: 0, kind: "view" },
   { id: "customer_features", label: "customer_features", col: 3, row: 0, kind: "table" },
@@ -36,10 +34,7 @@ const NODES: DagNode[] = [
 ];
 
 const EDGES: [string, string][] = [
-  ...STAGING.flatMap((s): [string, string][] => [
-    ["raw", s],
-    ["synthetic", s],
-  ]),
+  ...STAGING.map((s): [string, string] => ["database", s]),
   ...STAGING.map((s): [string, string] => [s, "int_customer_orders"]),
   ["int_customer_orders", "customer_features"],
   ["customer_features", "churn_model"],
@@ -47,15 +42,15 @@ const EDGES: [string, string][] = [
 
 const COL_LABELS = ["Sources", "Staging · silver", "Intermediate", "Gold", "Model"];
 
-const NODE_W = 196;
-const NODE_H = 58;
+const NODE_W = 200;
+const NODE_H = 56;
 const GAP = 22;
 const TOP = 50;
-const COL_DX = 268;
+const COL_DX = 272;
 const COL_X = COL_LABELS.map((_, i) => 18 + i * COL_DX);
 const SPAN = 6 * NODE_H + 5 * GAP;
 const VB_W = COL_X[4] + NODE_W + 18;
-const VB_H = TOP + SPAN + 14;
+const VB_H = TOP + SPAN + 16;
 
 function layout(): Record<string, { x: number; y: number }> {
   const byCol: Record<number, DagNode[]> = {};
@@ -79,7 +74,7 @@ const STATE: Record<NodeState, { accent: string; stroke: string; dot: string }> 
   running: { accent: "var(--accent)", stroke: "var(--accent)", dot: "var(--accent)" },
   done: {
     accent: "oklch(0.74 0.15 150)",
-    stroke: "color-mix(in oklch, oklch(0.74 0.15 150) 55%, var(--line))",
+    stroke: "color-mix(in oklch, oklch(0.74 0.15 150) 50%, var(--line))",
     dot: "oklch(0.74 0.15 150)",
   },
   warn: {
@@ -99,7 +94,7 @@ function edgePath(from: { x: number; y: number }, to: { x: number; y: number }):
   const y1 = from.y + NODE_H / 2;
   const x2 = to.x - 7;
   const y2 = to.y + NODE_H / 2;
-  const dx = Math.max(36, (x2 - x1) * 0.5);
+  const dx = Math.max(40, (x2 - x1) * 0.55);
   return `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
 }
 
@@ -119,7 +114,12 @@ export function PipelineDag({
   onRun: () => void;
 }) {
   function nodeState(node: DagNode): NodeState {
-    if (node.kind === "source" || node.kind === "model") return "done";
+    if (node.kind === "source") return "done";
+    if (node.kind === "model") {
+      if (!running) return "done";
+      const s = liveState[node.id];
+      return s === "done" ? "done" : s === "running" ? "running" : "idle";
+    }
     if (running) {
       const s = liveState[node.id];
       return s === "done" ? "done" : s === "error" ? "error" : "running";
@@ -138,9 +138,10 @@ export function PipelineDag({
     if (st === "idle") return "queued";
     if (st === "error") return "failed";
     if (st === "warn") return "warning";
-    if (node.id === "raw") return "9 Olist tables";
-    if (node.id === "synthetic")
-      return data ? `${data.synthetic_orders.toLocaleString()} orders` : "loaded";
+    if (node.id === "database") {
+      const syn = data ? `${Math.round(data.synthetic_orders / 1000)}K synthetic` : "synthetic";
+      return `9 Olist tables + ${syn} orders`;
+    }
     if (node.id === "customer_features")
       return data ? `${data.gold_rows.toLocaleString()} rows` : "materialized";
     if (node.id === "churn_model")
@@ -177,12 +178,15 @@ export function PipelineDag({
             viewBox="0 0 10 10"
             refX="8"
             refY="5"
-            markerWidth="7"
-            markerHeight="7"
+            markerWidth="6"
+            markerHeight="6"
             orient="auto-start-reverse"
           >
             <path d="M0,1 L9,5 L0,9 z" fill="var(--line-strong)" />
           </marker>
+          <filter id="dag-shadow" x="-20%" y="-30%" width="140%" height="170%">
+            <feDropShadow dx="0" dy="2" stdDeviation="3.5" floodColor="#000" floodOpacity="0.5" />
+          </filter>
         </defs>
 
         {/* Column headers */}
@@ -208,81 +212,59 @@ export function PipelineDag({
               fill="none"
               stroke={
                 states[to] === "done"
-                  ? "color-mix(in oklch, oklch(0.74 0.15 150) 50%, transparent)"
+                  ? "color-mix(in oklch, oklch(0.74 0.15 150) 48%, transparent)"
                   : "var(--line-strong)"
               }
               strokeWidth={1.5}
+              strokeLinecap="round"
               markerEnd="url(#dag-arrow)"
               className={cx(flowing && "dag-edge-flow")}
-              opacity={0.9}
+              opacity={0.85}
             />
           );
         })}
 
-        {/* Nodes */}
+        {/* Nodes — elevated service cards */}
         {NODES.map((n) => {
           const p = POS[n.id];
           const st = states[n.id];
           const s = STATE[st];
-          const badgeW = n.kind.length * 5.6 + 14;
           return (
             <g key={n.id}>
-              {/* card */}
               <rect
                 x={p.x}
                 y={p.y}
                 width={NODE_W}
                 height={NODE_H}
-                rx={10}
+                rx={12}
                 fill="var(--surface-strong)"
                 stroke={s.stroke}
                 strokeWidth={1.5}
+                filter="url(#dag-shadow)"
                 className={cx(st === "running" && "animate-pulse")}
               />
-              {/* status accent bar */}
               <rect
                 x={p.x + 1.5}
-                y={p.y + 9}
+                y={p.y + 11}
                 width={3.5}
-                height={NODE_H - 18}
+                height={NODE_H - 22}
                 rx={2}
                 fill={s.accent}
               />
-              {/* row 1 — status dot + asset name */}
-              <circle cx={p.x + 17} cy={p.y + 21} r={3.2} fill={s.dot} />
+              <circle cx={p.x + 18} cy={p.y + 21} r={3.4} fill={s.dot} />
               <text
-                x={p.x + 27}
+                x={p.x + 28}
                 y={p.y + 24.5}
-                className="text-[11px]"
+                className="text-[12px] font-medium"
                 style={{ fill: "var(--fg)", fontFamily: "var(--font-mono)" }}
               >
                 {n.label}
               </text>
-              {/* row 2 — kind badge + meta */}
-              <rect
-                x={p.x + 14}
-                y={p.y + 35}
-                width={badgeW}
-                height={15}
-                rx={4}
-                fill="var(--surface-deep)"
-                stroke="var(--line)"
-              />
               <text
-                x={p.x + 14 + badgeW / 2}
-                y={p.y + 45.5}
-                textAnchor="middle"
-                className="text-[8px] uppercase"
-                style={{ fill: "var(--muted)", letterSpacing: "0.06em" }}
-              >
-                {n.kind}
-              </text>
-              <text
-                x={p.x + NODE_W - 13}
-                y={p.y + 46}
-                textAnchor="end"
-                className="text-[9.5px]"
-                style={{ fill: s.accent, fontFamily: "var(--font-mono)" }}
+                x={p.x + 28}
+                y={p.y + 41}
+                className="text-[10px]"
+                style={{ fill: st === "idle" ? "var(--muted)" : s.accent }}
               >
                 {meta(n, st)}
               </text>
@@ -291,7 +273,6 @@ export function PipelineDag({
         })}
       </svg>
 
-      {/* Legend */}
       <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 border-t border-[var(--line)] pt-3 text-[10.5px] text-[var(--muted)]">
         {(
           [

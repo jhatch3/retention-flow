@@ -25,8 +25,8 @@ from dagster import (
 )
 from dagster_dbt import DbtCliResource, DbtProject, dbt_assets
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-TRANSFORM_DIR = REPO_ROOT / "transform"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+TRANSFORM_DIR = REPO_ROOT / "src" / "transform"
 
 # Make the `backend` package importable when the churn-model asset runs.
 SRC = REPO_ROOT / "src"

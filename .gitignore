@@ -16,17 +16,17 @@ dist/
 data/
 
 # MLflow
-mlruns/
+logs/mlruns/
 *.db
 
 # Dagster (local runtime / temp home)
 .tmp_dagster_home_*/
-orchestration/logs/
+src/orchestration/logs/
 
-# dbt (also covered by transform/.gitignore)
-transform/target/
-transform/logs/
-transform/dbt_packages/
+# dbt (also covered by src/transform/.gitignore)
+src/transform/target/
+src/transform/logs/
+src/transform/dbt_packages/
 
 # Notebooks
 .ipynb_checkpoints/

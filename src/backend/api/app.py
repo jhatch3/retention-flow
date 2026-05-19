@@ -5,13 +5,17 @@
 One JSON API over three sources:
 - GET  /api/pipeline            dbt run + test status
 - GET  /api/data                Postgres warehouse overview
+- GET  /api/warehouse/tables    every table + view in the warehouse schemas
+- GET  /api/warehouse/sample    first N rows of one table or view
 - GET  /api/models              MLflow registered churn-model versions
 - GET  /api/feature-importance  champion model feature importances
 - GET  /api/predictions         summary of the latest batch scoring
+- GET  /api/shap                global SHAP summary + per-customer breakdowns
 - GET  /api/runs                recent rebuild + scoring runs
 - POST /api/score               run batch scoring (one-shot)
 - GET  /api/score/stream        run batch scoring, streaming progress (SSE)
 - GET  /api/pipeline/rebuild/stream  drop analytics + dbt build, timed (SSE)
+- GET  /api/pipeline/run/stream      full pipeline: dbt + train + score (SSE)
 """
 
 from __future__ import annotations
@@ -23,10 +27,22 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from .rebuild import rebuild_events
+from .rebuild import full_pipeline_events, rebuild_events
 from .runs import recent_runs
-from .scoring import predictions_overview, run_batch_scoring, score_events
-from .services import dbt_status, feature_importance, model_registry, warehouse_overview
+from .scoring import (
+    predictions_overview,
+    run_batch_scoring,
+    score_events,
+    shap_overview,
+)
+from .services import (
+    dbt_status,
+    feature_importance,
+    model_registry,
+    warehouse_overview,
+    warehouse_sample,
+    warehouse_tables,
+)
 
 app = FastAPI(title="RetentionFlow Dashboard API", version="0.2.0")
 
@@ -56,6 +72,18 @@ def data() -> dict:
     return warehouse_overview()
 
 
+@app.get("/api/warehouse/tables")
+def warehouse_tables_route() -> dict:
+    """Every table and view in the warehouse schemas, with columns + row counts."""
+    return warehouse_tables()
+
+
+@app.get("/api/warehouse/sample")
+def warehouse_sample_route(schema: str, table: str, limit: int = 25) -> dict:
+    """First `limit` rows of a single warehouse table or view."""
+    return warehouse_sample(schema, table, limit)
+
+
 @app.get("/api/models")
 def models() -> dict:
     """Registered churn-model versions and the current champion."""
@@ -72,6 +100,12 @@ def importance() -> dict:
 def predictions() -> dict:
     """Summary of the predictions currently in serving.predictions."""
     return predictions_overview()
+
+
+@app.get("/api/shap")
+def shap() -> dict:
+    """Global SHAP attribution and per-customer 'why at-risk' breakdowns."""
+    return shap_overview()
 
 
 @app.get("/api/runs")
@@ -110,3 +144,9 @@ def score_stream() -> StreamingResponse:
 def rebuild_stream() -> StreamingResponse:
     """Drop the analytics schema and re-run dbt build, streaming timed progress."""
     return _sse(rebuild_events())
+
+
+@app.get("/api/pipeline/run/stream")
+def pipeline_run_stream() -> StreamingResponse:
+    """Run the full pipeline — dbt rebuild, training, scoring — streaming progress."""
+    return _sse(full_pipeline_events())

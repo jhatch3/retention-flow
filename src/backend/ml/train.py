@@ -5,7 +5,7 @@
 Reads the gold table, trains on the `train` split, **tunes the decision
 threshold on the validation PR curve** (the highest-precision threshold that
 still catches 85% of churners), evaluates on `test` and `validation`, logs
-everything to a local MLflow store (`mlruns/`), then registers the model and
+everything to a local MLflow store (`logs/mlruns/`), then registers the model and
 moves the `champion` alias to the new version.
 
 The notebook imports ``build_model`` / ``evaluate`` / ``tune_threshold`` from
@@ -37,7 +37,7 @@ from xgboost import XGBClassifier
 from .data import load_splits
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-MLFLOW_URI = (REPO_ROOT / "mlruns").as_uri()
+MLFLOW_URI = (REPO_ROOT / "logs" / "mlruns").as_uri()
 EXPERIMENT = "churn-xgboost"
 REGISTERED_MODEL = "churn-xgboost"
 CHAMPION_ALIAS = "champion"

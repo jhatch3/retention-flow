@@ -11,50 +11,15 @@ def get_current_datetime(timezone: str = "UTC") -> str:
     except Exception as e:
         return f"Error: {str(e)}"
 
-def format_response(
-    customer_id: str,
-    subject: str,
-    body: str,
-    call_to_action: dict,
-    tone: str,
-    risk_tier: str,
-    includes_offer: bool,
-    grounding: dict,
-    reasoning: str,
-) -> dict:
-    """
-    Tool handler for the format_response tool. Claude calls this with the
-    structured email it has composed. This function validates the structure
-    and returns it back as the tool result.
-
-    Since the schema enforcement happens at the API level, this function
-    primarily exists to (1) satisfy the tool-use contract and (2) give us
-    a hook for any post-processing or persistence.
-    """
-    return json.dump({
-        "customer_id": customer_id,
-        "subject": subject,
-        "body": body,
-        "call_to_action": call_to_action,
-        "tone": tone,
-        "risk_tier": risk_tier,
-        "includes_offer": includes_offer,
-        "grounding": grounding,
-        "reasoning": reasoning,
-    })
-
-
 
 TOOL_FUNCTIONS = {
     "get_current_datetime": get_current_datetime,
-    "format_response": format_response,
 }
 
 
 def run_tool(tool_name, tool_input):
     if tool_name not in TOOL_FUNCTIONS:
         raise ValueError(f"Unknown tool: {tool_name}")
-    
     return TOOL_FUNCTIONS[tool_name](**tool_input)
 
 

@@ -5,7 +5,7 @@ import anthropic
 from dotenv import load_dotenv
 
 from src.ai.prompts.RETENTION_EMAIL_SYSTEM_PROMPT import RETENTION_EMAIL_SYSTEM_PROMPT
-from src.ai.prompts.test_dataset import test_input_service_failure
+from src.ai.prompts.test_dataset import test_case_service_failure
 from src.ai.tools import run_tools
 from src.ai.tools_schema import FORMAT_RESPONSE_OUTPUT_CONFIG, TOOL_SCHEMAS
 
@@ -67,7 +67,12 @@ def run_conversation(
     tools=None,
     output_config=None,
     max_turns=10,
+    tool_log=None,
 ):
+    """Run a tool-loop conversation. If `tool_log` is a list, it's appended to
+    in-place with one dict per tool call: {name, input, output}.
+    """
+    pending: dict[str, dict] = {}
     for _ in range(max_turns):
         response = chat(
             messages,
@@ -84,43 +89,75 @@ def run_conversation(
         if response.stop_reason != "tool_use":
             return response
 
+        if tool_log is not None:
+            for block in response.content:
+                if block.type == "tool_use":
+                    pending[block.id] = {"name": block.name, "input": block.input}
+
         tool_results = run_tools(response)
+
+        if tool_log is not None:
+            for tr in tool_results:
+                entry = pending.pop(tr["tool_use_id"], None)
+                if entry is not None:
+                    entry["output"] = tr["content"]
+                    tool_log.append(entry)
+
         add_user_message(messages, tool_results)
 
     raise RuntimeError(f"run_conversation exceeded max_turns={max_turns} without terminating")
 
 
-if __name__ == "__main__":
+def generate_email(customer_input: dict, use_db_tools: bool = True) -> tuple[dict, list[dict]]:
+    """Generate one structured retention email for the given customer payload.
+
+    When use_db_tools is True, the model may call read-only DB tools to ground
+    the email in real customer history. Returns (email_dict, tool_calls) where
+    tool_calls is a list of {name, input, output} dicts (empty if tools weren't
+    used or weren't called).
+    """
     messages = []
-
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
     add_user_message(
         messages,
-        "Generate an email and format it as JSON according to the schema. Use the following input data:"
-        + json.dumps(test_input_service_failure),
+        "Generate a retention email for the customer below. Return the structured "
+        "JSON output exactly per the schema.\n\n"
+        "Before you emit, verify each item:\n"
+        "  1. Tone matches risk tier + SHAP profile. risk_tier='low' OR mostly-protective "
+        "     top SHAPs → tone MUST be 'neutral' (no warm phrasing in the body).\n"
+        "  2. Offer decision matches SHAP driver type. Service failure → no offer. "
+        "     Weak/protective signals → no offer. Price/engagement risk → offer with {{offer_detail}}.\n"
+        "  3. CTA intent matches offer: includes_offer=true ⟺ intent='redeem'. "
+        "     Service failure → 'support'. Review concern → 'feedback' or 'support', NOT 'browse'. "
+        "     Low/weak signal → 'browse' or 'feedback', NEVER 'redeem'.\n"
+        "  4. Subject anchors to a specific signal (a number, a behavior, a question). "
+        "     NO transactional 'Your X order arrived' framing.\n"
+        "  5. Sign-off uses the literal token '{{brand}}', not '[Brand]'.\n"
+        "  6. Tool calls: if risk_tier='low' OR signals are weak (most top SHAPs protective), "
+        "     call ZERO tools. Otherwise at most 2.\n"
+        "  7. Any number in the body must trace to customer_input or a tool output (quoted at "
+        "     the precision the tool returned — do not round 12.56 to 13).\n\n"
+        "INPUT:\n"
+        + json.dumps(customer_input),
     )
-
+    tool_log: list[dict] = []
     final = run_conversation(
         messages,
         system=RETENTION_EMAIL_SYSTEM_BLOCKS,
         temperature=0.0,
+        tools=TOOL_SCHEMAS if use_db_tools else None,
         output_config=FORMAT_RESPONSE_OUTPUT_CONFIG,
+        tool_log=tool_log if use_db_tools else None,
     )
+    return json.loads(text_from_message(final)), tool_log
 
-    print(f"Cache write: {final.usage.cache_creation_input_tokens} tokens")
-    print(f"Cache hit:   {final.usage.cache_read_input_tokens} tokens")
 
-    structured = json.loads(text_from_message(final))
+if __name__ == "__main__":
+    now = datetime.now()
+    email, tool_calls = generate_email(test_case_service_failure["input"])
+    now2 = datetime.now()
 
     print(" ============== Subject ================== ")
-    print(structured["subject"])
-
+    print(email["subject"])
     print(" ============== Body ================== ")
-    print(structured["body"])
-
-    now2 = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    print(f"Start time: {now}")
-    print(f"End time: {now2}")
-    print(f"Elapsed time: {datetime.strptime(now2, '%Y-%m-%d %H:%M:%S') - datetime.strptime(now, '%Y-%m-%d %H:%M:%S')}")
+    print(email["body"])
+    print(f"Elapsed: {now2 - now}")

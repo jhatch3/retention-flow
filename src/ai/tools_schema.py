@@ -177,6 +177,200 @@ FORMAT_RESPONSE_OUTPUT_CONFIG = {
 }
 
 
+GRADER_OUTPUT_CONFIG = {
+    "format": {
+        "type": "json_schema",
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "test_case_name",
+                "score",
+                "success_criteria",
+                "clauses_evaluated",
+                "weaknesses",
+                "reasoning",
+                "certainty",
+            ],
+            "properties": {
+                "test_case_name": {
+                    "type": "string",
+                    "description": "Echo the test_case_name from the input verbatim.",
+                },
+                "score": {
+                    "type": "number",
+                    "description": (
+                        "Score from 1 (fails all criteria) to 10 (essentially never awarded; reserved "
+                        "for publishable-as-is with creative strength). Fractional scores allowed. "
+                        "Default is 6. Competent baseline is 7. See rubric and hard caps in the "
+                        "system prompt. Must be between 1 and 10."
+                    ),
+                },
+                "success_criteria": {
+                    "type": "string",
+                    "description": "Echo the success_criteria from the input verbatim.",
+                },
+                "clauses_evaluated": {
+                    "type": "array",
+                    "description": (
+                        "One entry per distinct clause in success_criteria. You must produce at "
+                        "least one entry per clause — do not collapse multiple clauses into one."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["clause", "verdict", "evidence"],
+                        "properties": {
+                            "clause": {
+                                "type": "string",
+                                "description": "Paraphrase of the clause from success_criteria.",
+                            },
+                            "verdict": {
+                                "type": "string",
+                                "enum": ["met", "partially_met", "not_met", "not_assessable"],
+                                "description": "How this clause was honored by the email.",
+                            },
+                            "evidence": {
+                                "type": "string",
+                                "description": (
+                                    "Specific quoted phrase from the email body OR specific field "
+                                    "value from generated_email backing the verdict."
+                                ),
+                            },
+                        },
+                    },
+                },
+                "weaknesses": {
+                    "type": "array",
+                    "description": (
+                        "At least 2 specific weaknesses or risks in the email. Quote phrases or "
+                        "point at field values. Even strong emails have weaknesses — find them. "
+                        "Subject-line genericness, unfilled placeholders, awkward sentences, and "
+                        "weak grounding all count."
+                    ),
+                    "items": {"type": "string"},
+                },
+                "reasoning": {
+                    "type": "string",
+                    "description": (
+                        "2-5 sentences connecting clauses_evaluated and weaknesses to the final "
+                        "score. Apply hard caps explicitly. To award above 7, you must list at "
+                        "least three distinct active strengths here."
+                    ),
+                },
+                "certainty": {
+                    "type": "number",
+                    "description": (
+                        "Your confidence in the score. Float between 0 (uncertain) and 1 (very "
+                        "certain). See the rubric in the system prompt for calibration anchors."
+                    ),
+                },
+            },
+        },
+    }
+}
+
+
+get_customer_delivery_stats_schema = {
+    "name": "get_customer_delivery_stats",
+    "description": (
+        "Returns this customer's average delivery time across all their delivered orders, "
+        "alongside the marketplace-wide average for comparison. Use this when the SHAP factors "
+        "for the email include avg_delivery_days as a risk driver, or when you want to "
+        "concretely ground a 'your deliveries have been slow' acknowledgment with real numbers "
+        "(e.g., 'your last orders averaged 14 days; our marketplace average is 5'). "
+        "Returns null fields if the customer has no delivered orders."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "customer_unique_id": {
+                "type": "string",
+                "description": "The customer_unique_id from the customer payload (top-level customer_id field).",
+            }
+        },
+        "required": ["customer_unique_id"],
+    },
+}
+
+get_customer_recent_orders_schema = {
+    "name": "get_customer_recent_orders",
+    "description": (
+        "Returns this customer's most recent orders, with category, delivery_days, order_status, "
+        "and avg_review_score per order. Use this when the email could benefit from a concrete "
+        "reference to a recent order (e.g., 'your last books order took 14 days and you rated it 2 "
+        "stars'). Empty list if the customer has no orders. Default limit is 5."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "customer_unique_id": {
+                "type": "string",
+                "description": "The customer_unique_id from the customer payload.",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Maximum number of orders to return (clamped to 1-20). Default 5.",
+            },
+        },
+        "required": ["customer_unique_id"],
+    },
+}
+
+get_category_baseline_schema = {
+    "name": "get_category_baseline",
+    "description": (
+        "Returns marketplace-wide stats for a product category (avg delivery days, avg review "
+        "score, total order count). Use this to make comparative claims like 'books in our "
+        "marketplace typically arrive in 6 days'. Accepts the English category name (e.g., "
+        "'electronics', 'books_general_interest', 'health_beauty') or the Portuguese name. "
+        "Returns null fields with a 'category not found' note if the category isn't recognized."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "category": {
+                "type": "string",
+                "description": (
+                    "Category name (English preferred). Examples: 'electronics', 'books_general_interest', "
+                    "'health_beauty', 'home_appliances'. Pass the customer's preferred_category if you want "
+                    "the baseline for their main category."
+                ),
+            }
+        },
+        "required": ["category"],
+    },
+}
+
+get_customer_review_history_schema = {
+    "name": "get_customer_review_history",
+    "description": (
+        "Returns this customer's recent reviews, with score, date, comment title/message, and "
+        "category context. Use this when avg_review_score is a SHAP risk driver and you want to "
+        "ground the email in the customer's actual review history rather than an aggregate "
+        "number. Empty list if the customer has no reviews. Default limit is 10."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "customer_unique_id": {
+                "type": "string",
+                "description": "The customer_unique_id from the customer payload.",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Maximum number of reviews to return (clamped to 1-25). Default 10.",
+            },
+        },
+        "required": ["customer_unique_id"],
+    },
+}
+
+
 TOOL_SCHEMAS = [
     get_current_datetime_schema,
+    get_customer_delivery_stats_schema,
+    get_customer_recent_orders_schema,
+    get_category_baseline_schema,
+    get_customer_review_history_schema,
 ]

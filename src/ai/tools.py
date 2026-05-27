@@ -2,6 +2,13 @@ import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from src.ai.db_tools import (
+    get_category_baseline,
+    get_customer_delivery_stats,
+    get_customer_recent_orders,
+    get_customer_review_history,
+)
+
 
 def get_current_datetime(timezone: str = "UTC") -> str:
     """Return the current date and time in the specified timezone."""
@@ -14,6 +21,10 @@ def get_current_datetime(timezone: str = "UTC") -> str:
 
 TOOL_FUNCTIONS = {
     "get_current_datetime": get_current_datetime,
+    "get_customer_delivery_stats": get_customer_delivery_stats,
+    "get_customer_recent_orders": get_customer_recent_orders,
+    "get_category_baseline": get_category_baseline,
+    "get_customer_review_history": get_customer_review_history,
 }
 
 

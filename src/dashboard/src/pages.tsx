@@ -1,8 +1,6 @@
 // Per-section pages — each composes the relevant cards behind a PageHeader.
-import { ExternalLink, Gavel, MailCheck } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import type {
-  EvalModel,
-  FeatureImportance,
   ModelRegistry,
   PipelineStatus,
   Predictions,
@@ -10,12 +8,12 @@ import type {
   ShapData,
   WarehouseData,
 } from "./api";
+import type { PipelineOpts } from "./RunPipelineControl";
 import { PageHeader } from "./shell";
-import { Button, Card, MetricCell, Pill, Skeleton } from "./ui";
+import { Button, Card } from "./ui";
 import { openExternal } from "./lib";
 import {
   ChurnHero,
-  FeatureImportanceCard,
   KpiRow,
   ModelRegistryCard,
   PipelineCard,
@@ -36,7 +34,6 @@ export function OverviewPage(p: {
   data?: WarehouseData;
   models?: ModelRegistry;
   pipeline?: PipelineStatus;
-  fi?: FeatureImportance;
   predictions?: Predictions;
   runs?: RunRecord[];
   shap?: ShapData;
@@ -78,13 +75,7 @@ export function OverviewPage(p: {
 
         <ModelRegistryCard models={p.models} />
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <WarehouseCard data={p.data} />
-          <FeatureImportanceCard
-            fi={p.fi}
-            championVersion={p.models?.champion_version}
-          />
-        </div>
+        <WarehouseCard data={p.data} />
 
         <ScoringPanel
           predictions={p.predictions}
@@ -114,6 +105,11 @@ export function PipelinePage({
   championVersion,
   running,
   liveState,
+  emailsCount,
+  gradesCount,
+  judgeMeanScore,
+  opts,
+  onOpts,
   onRun,
 }: {
   pipeline?: PipelineStatus;
@@ -121,6 +117,11 @@ export function PipelinePage({
   championVersion?: string | null;
   running: boolean;
   liveState: Record<string, string>;
+  emailsCount?: number;
+  gradesCount?: number;
+  judgeMeanScore?: number;
+  opts: PipelineOpts;
+  onOpts: (o: PipelineOpts) => void;
   onRun: () => void;
 }) {
   return (
@@ -128,7 +129,7 @@ export function PipelinePage({
       <PageHeader
         eyebrow="Workspace"
         title="Pipeline"
-        description="dbt medallion build — staging views and the gold customer-features table. The asset graph lights up live as a rebuild runs."
+        description="dbt medallion build → champion model → batch scoring → LLM-drafted retention emails → adversarial judge. Asset graph lights up live as the pipeline runs."
       />
       <div className="space-y-6">
         <PipelineDag
@@ -137,6 +138,11 @@ export function PipelinePage({
           championVersion={championVersion}
           running={running}
           liveState={liveState}
+          emailsCount={emailsCount}
+          gradesCount={gradesCount}
+          judgeMeanScore={judgeMeanScore}
+          opts={opts}
+          onOpts={onOpts}
           onRun={onRun}
         />
         <PipelineCard pipeline={pipeline} />
@@ -147,11 +153,9 @@ export function PipelinePage({
 
 export function ModelsPage({
   models,
-  fi,
   shap,
 }: {
   models?: ModelRegistry;
-  fi?: FeatureImportance;
   shap?: ShapData;
 }) {
   return (
@@ -159,14 +163,11 @@ export function ModelsPage({
       <PageHeader
         eyebrow="Workspace"
         title="Models"
-        description="MLflow registry — champion metrics, version history, feature importance, and SHAP attribution for the churn classifier."
+        description="MLflow registry — champion metrics, version history, and SHAP attribution for the churn classifier."
       />
       <div className="space-y-6">
         <ModelRegistryCard models={models} />
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <FeatureImportanceCard fi={fi} championVersion={models?.champion_version} />
-          <ShapCard shap={shap} />
-        </div>
+        <ShapCard shap={shap} />
       </div>
     </>
   );
@@ -254,104 +255,6 @@ export function ComingSoonPage({ title }: { title: string }) {
           Coming soon
         </div>
       </Card>
-    </>
-  );
-}
-
-// ─── Eval ────────────────────────────────────────────────────────────────
-function fmtPct(v?: number | null): string {
-  return v == null ? "—" : `${(v * 100).toFixed(1)}%`;
-}
-
-function fmtNum(v?: number | null): string {
-  return v == null ? "—" : v.toFixed(2);
-}
-
-function EvalModelCard({ model }: { model?: EvalModel }) {
-  if (!model) return <Skeleton className="h-44 w-full" />;
-
-  if (!model.available) {
-    return (
-      <Card
-        title="DistilBERT · email quality"
-        subtitle="Tier 1 — fine-tuned classifier, grades every email inline"
-        icon={<MailCheck size={14} />}
-      >
-        <div className="py-8 text-center text-[12.5px] text-[var(--muted)]">
-          No model registered yet — run{" "}
-          <code className="font-mono text-[var(--fg-soft)]">
-            python -m backend.eval.distilbert.train
-          </code>
-          .
-        </div>
-      </Card>
-    );
-  }
-
-  const m = model.metrics;
-  return (
-    <Card
-      title="DistilBERT · email quality"
-      subtitle="Tier 1 — fine-tuned classifier, grades every email inline"
-      icon={<MailCheck size={14} />}
-      right={
-        <Pill tone="accent" dot>
-          v{model.champion_version} · champion
-        </Pill>
-      }
-    >
-      <div className="grid grid-cols-2 gap-5 sm:grid-cols-4">
-        <MetricCell label="Test accuracy" value={fmtPct(m?.test_accuracy)} primary />
-        <MetricCell label="Macro F1" value={fmtNum(m?.test_f1_macro)} />
-        <MetricCell label="MAE · grades" value={fmtNum(m?.test_mae_grades)} />
-        <MetricCell
-          label="Train rows"
-          value={model.n_train?.toLocaleString() ?? "—"}
-        />
-      </div>
-      <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 border-t border-[var(--line)] pt-3 text-[11px] text-[var(--muted)]">
-        <span>
-          base ·{" "}
-          <span className="font-mono text-[var(--fg-soft)]">
-            {model.base_model ?? "distilbert-base-uncased"}
-          </span>
-        </span>
-        <span>pass threshold · grade ≥ {model.pass_threshold ?? 3}</span>
-      </div>
-    </Card>
-  );
-}
-
-function LlmJudgeCard() {
-  return (
-    <Card
-      title="LLM judge"
-      subtitle="Tier 2 — Claude re-grades on the same 1–5 scale"
-      icon={<Gavel size={14} />}
-      right={<Pill tone="neutral">Coming soon</Pill>}
-    >
-      <p className="max-w-2xl text-[12.5px] leading-relaxed text-[var(--muted)]">
-        The second eval tier sends emails to Claude for a grounded quality
-        grade. Where the LLM judge and DistilBERT disagree is the signal worth
-        investigating — that gap drives the disagreement analysis. Not wired up
-        yet.
-      </p>
-    </Card>
-  );
-}
-
-export function EvalPage({ model }: { model?: EvalModel }) {
-  return (
-    <>
-      <PageHeader
-        eyebrow="Workspace"
-        title="Email quality eval"
-        description="Two-tier evaluation of generated retention emails. Tier 1 is a fine-tuned DistilBERT classifier that grades every email inline; tier 2 is an LLM-as-judge."
-      />
-      <div className="space-y-6">
-        <EvalModelCard model={model} />
-        <LlmJudgeCard />
-      </div>
     </>
   );
 }

@@ -23,15 +23,11 @@ if TYPE_CHECKING:
 
 
 class EvalScore(Base, TimestampMixin):
-    """A quality score for a generated email from one tier of the eval stack.
+    """A quality score for a generated email from the LLM-as-judge evaluator.
 
-    Each email is scored at most twice -- once by the fine-tuned DistilBERT
-    classifier and once by the LLM-as-judge -- so the unique constraint is on
-    ``(email_id, evaluator)``. Both tiers emit a single ``overall_score`` (a
-    1-5 quality grade) and a ``passed`` gate on the same scale, which keeps
-    their grades directly comparable for disagreement analysis. ``judge_model``
-    records which model produced an ``llm_judge`` score and is null for
-    ``distilbert`` rows.
+    Each email is graded once on the 1-5 ``overall_score`` scale, with a
+    ``passed`` gate on the same scale. ``judge_model`` records which model
+    produced the score.
     """
 
     __tablename__ = "eval_scores"
@@ -54,7 +50,7 @@ class EvalScore(Base, TimestampMixin):
     overall_score: Mapped[float] = mapped_column(Float)
     passed: Mapped[bool] = mapped_column(Boolean)
 
-    # Set for llm_judge rows (e.g. the Claude model id); null for distilbert.
+    # The Claude model id that produced the score.
     judge_model: Mapped[str | None] = mapped_column(String(64))
     latency_ms: Mapped[float | None] = mapped_column(Float)
 

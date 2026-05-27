@@ -2,8 +2,12 @@
 
 Via the dagster-dbt integration, every dbt model becomes a Dagster asset and
 every dbt test becomes an asset check. The churn model is a downstream asset
-that trains on the gold table and registers itself in MLflow. A nightly
-schedule materialises the whole graph: dbt build, then retrain + register.
+that trains on the gold table and registers itself in MLflow; ``batch_predictions``
+then scores the gold table with the champion, ``retention_emails`` drafts
+emails for the top-N at-risk customers via the async batch generator, and
+``eval_scores`` grades every fresh email with the adversarial LLM-as-judge. A
+nightly schedule materialises the whole graph: dbt build → retrain → score →
+emails → judge.
 
 The one-time CSV-to-`raw` migration is deliberately NOT modelled here — the
 asset graph starts from the raw tables already present in Postgres. See
@@ -28,10 +32,12 @@ from dagster_dbt import DbtCliResource, DbtProject, dbt_assets
 REPO_ROOT = Path(__file__).resolve().parents[3]
 TRANSFORM_DIR = REPO_ROOT / "src" / "transform"
 
-# Make the `backend` package importable when the churn-model asset runs.
+# Make the `backend` and `ai` packages importable when the downstream assets run.
 SRC = REPO_ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 dbt_project = DbtProject(
     project_dir=TRANSFORM_DIR,
@@ -76,7 +82,73 @@ def churn_model(context) -> MaterializeResult:
     )
 
 
-# One nightly job over the full graph: dbt build, then retrain + register.
+@asset(
+    deps=[churn_model],
+    group_name="ml",
+    description="Batch scoring — score the gold table with the champion model "
+    "and persist predictions + SHAP attribution to serving.",
+)
+def batch_predictions(context) -> MaterializeResult:
+    """Run batch scoring for every customer in the gold table."""
+    from backend.api.scoring import run_batch_scoring
+
+    result = run_batch_scoring()
+    return MaterializeResult(metadata={k: result[k] for k in sorted(result)})
+
+
+@asset(
+    deps=[batch_predictions],
+    group_name="ai",
+    description="Async parallel email generation for the top-N at-risk customers; "
+    "drafts land in serving.generated_emails.",
+)
+def retention_emails(context) -> MaterializeResult:
+    """Generate retention emails for the top-N at-risk customers.
+
+    Top-N + concurrency are configured at the asset level; the implementation
+    in ``src/ai/batch.py`` fans out via ``AsyncAnthropic`` bounded by a
+    semaphore.
+    """
+    from ai.batch import (
+        DEFAULT_CONCURRENCY,
+        DEFAULT_TOP_N,
+        generate_top_n_emails,
+    )
+
+    summary = generate_top_n_emails(
+        top_n=DEFAULT_TOP_N, concurrency=DEFAULT_CONCURRENCY
+    )
+    return MaterializeResult(metadata={k: summary[k] for k in sorted(summary)})
+
+
+@asset(
+    deps=[retention_emails],
+    group_name="ai",
+    description="Adversarial LLM-as-judge grading of every generated email "
+    "that does not yet have a judge grade. Persists score, certainty, "
+    "reasoning, weaknesses, and per-clause verdicts to serving.eval_scores.",
+)
+def eval_scores(context) -> MaterializeResult:
+    """Grade every fresh retention email with the adversarial judge.
+
+    Per-customer success criteria are synthesised from each customer's SHAP
+    profile in ``ai/judge_batch.py`` — mirroring the same rules the generator
+    follows. Idempotent: only emails missing from ``serving.eval_scores`` are
+    graded, so re-running this asset is cheap.
+    """
+    from ai.judge_batch import (
+        DEFAULT_CONCURRENCY,
+        DEFAULT_LIMIT,
+        grade_unjudged_emails,
+    )
+
+    summary = grade_unjudged_emails(
+        limit=DEFAULT_LIMIT, concurrency=DEFAULT_CONCURRENCY
+    )
+    return MaterializeResult(metadata={k: summary[k] for k in sorted(summary)})
+
+
+# One nightly job over the full graph: dbt → train → score → emails → judge.
 nightly_job = define_asset_job(name="nightly_pipeline", selection="*")
 
 nightly_schedule = ScheduleDefinition(
@@ -86,7 +158,13 @@ nightly_schedule = ScheduleDefinition(
 )
 
 defs = Definitions(
-    assets=[retention_dbt_assets, churn_model],
+    assets=[
+        retention_dbt_assets,
+        churn_model,
+        batch_predictions,
+        retention_emails,
+        eval_scores,
+    ],
     resources={
         "dbt": DbtCliResource(
             project_dir=dbt_project,

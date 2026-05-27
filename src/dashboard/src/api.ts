@@ -77,10 +77,6 @@ export interface ModelRegistry {
   versions: ModelVersion[];
 }
 
-export interface FeatureImportance {
-  features: { feature: string; importance: number }[];
-}
-
 export interface Predictions {
   scored: boolean;
   total?: number;
@@ -89,7 +85,11 @@ export interface Predictions {
   model_version?: string;
   scored_at?: string | null;
   risk_histogram?: { bucket: number; count: number }[];
-  top_at_risk?: { customer_unique_id: string; churn_probability: number }[];
+  top_at_risk?: {
+    customer_unique_id: string;
+    display_name?: string;
+    churn_probability: number;
+  }[];
 }
 
 export interface ScoreResult {
@@ -164,23 +164,15 @@ export interface PipelineReport {
     threshold: number;
     model_version: string;
   };
-  total_seconds: number;
-}
-
-export interface EvalModel {
-  available: boolean;
-  model_name: string;
-  champion_version?: string;
-  base_model?: string | null;
-  n_train?: number | null;
-  pass_threshold?: number;
-  metrics?: {
-    test_accuracy: number | null;
-    test_f1_macro: number | null;
-    test_mae_grades: number | null;
-    validation_accuracy: number | null;
+  emails?: {
+    generated: number;
+    failed: number;
+    top_n_requested: number;
+    elapsed_seconds: number;
+    model: string;
+    concurrency?: number;
   };
-  created_at?: string;
+  total_seconds: number;
 }
 
 // ─── Triage Inbox ────────────────────────────────────────────────────────
@@ -247,13 +239,10 @@ export interface InboxEmailDraft {
 }
 
 export interface InboxEval {
-  distilbert_score: number;
-  distilbert_ms: number;
   judge_score: number;
   judge_ms: number;
   pass_threshold: number;
   passed: boolean;
-  agreement_delta: number;
 }
 
 export interface InboxPlay {
@@ -282,6 +271,82 @@ async function request<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export interface GeneratedEmail {
+  id: number;
+  customer_unique_id: string;
+  display_name: string;
+  subject: string;
+  preview: string;
+  model: string | null;
+  status: string;
+  generated_at: string | null;
+  churn_probability: number | null;
+  risk_tier: RiskTier;
+  judge_score: number | null;
+  judge_passed: boolean | null;
+}
+
+export interface GeneratedEmails {
+  emails: GeneratedEmail[];
+  total: number;
+}
+
+export interface JudgeInsights {
+  available: boolean;
+  total: number;
+  avg_score?: number;
+  min_score?: number;
+  max_score?: number;
+  stddev_score?: number;
+  avg_certainty?: number;
+  pass_rate?: number;
+  latest_at?: string | null;
+  judge_model?: string | null;
+  score_histogram?: { bucket: number; count: number }[];
+  clause_verdicts?: {
+    met: number;
+    partially_met: number;
+    not_met: number;
+    not_assessable: number;
+  };
+  top_clauses_partial?: { clause: string; count: number }[];
+  top_clauses_not_met?: { clause: string; count: number }[];
+  top_weakness_phrases?: { phrase: string; count: number }[];
+  weakness_samples?: string[];
+}
+
+export interface ClauseEvaluated {
+  clause: string;
+  verdict: "met" | "partially_met" | "not_met" | "not_assessable" | string;
+  evidence?: string;
+}
+
+export interface JudgeGrade {
+  grade_id: number;
+  email_id: number;
+  customer_unique_id: string | null;
+  display_name: string;
+  subject: string;
+  body: string;
+  generator_model: string | null;
+  judge_model: string | null;
+  overall_score: number | null;
+  certainty: number | null;
+  passed: boolean | null;
+  reasoning: string;
+  weaknesses: string[];
+  clauses_evaluated: ClauseEvaluated[];
+  churn_probability: number | null;
+  risk_tier: RiskTier;
+  graded_at: string | null;
+  latency_ms: number | null;
+}
+
+export interface JudgeGrades {
+  grades: JudgeGrade[];
+  total: number;
+}
+
 export const api = {
   pipeline: () => request<PipelineStatus>("/api/pipeline"),
   data: () => request<WarehouseData>("/api/data"),
@@ -292,11 +357,12 @@ export const api = {
         `&table=${encodeURIComponent(table)}&limit=${limit}`,
     ),
   models: () => request<ModelRegistry>("/api/models"),
-  featureImportance: () => request<FeatureImportance>("/api/feature-importance"),
   predictions: () => request<Predictions>("/api/predictions"),
   shap: () => request<ShapData>("/api/shap"),
   runs: () => request<Runs>("/api/runs"),
-  evalModel: () => request<EvalModel>("/api/eval/model"),
+  emails: (limit = 20) => request<GeneratedEmails>(`/api/emails?limit=${limit}`),
+  judgeInsights: () => request<JudgeInsights>("/api/eval/insights"),
+  judgeGrades: (limit = 50) => request<JudgeGrades>(`/api/eval/grades?limit=${limit}`),
   inbox: {
     customers: (filter: FilterKey = "all") =>
       request<InboxCustomerList>(`/api/inbox/customers?filter=${filter}`),

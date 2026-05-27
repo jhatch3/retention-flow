@@ -1,5 +1,6 @@
 // Primitives: Card, Pill, Delta, Sparkline, Kpi, Button, Skeleton,
-// SectionHeader, Stat2, MetricCell, KvItem. Dark surface, hairline borders.
+// SectionHeader, Stat2, MetricCell, KvItem. Warm cream surfaces, hairline
+// borders — matched to the inbox style.
 import { useMemo } from "react";
 import type { ReactNode } from "react";
 import { cx } from "./lib";
@@ -30,7 +31,7 @@ export function Card({
     <section
       className={cx(
         "rounded-xl border border-[var(--line)] bg-[var(--surface)]",
-        "shadow-[0_1px_0_rgba(255,255,255,0.03)_inset,0_1px_2px_rgba(0,0,0,0.4)]",
+        "shadow-[0_1px_2px_rgba(28,26,23,0.04)]",
         className,
       )}
     >
@@ -77,21 +78,26 @@ export function Pill({
   className?: string;
 }) {
   const tones: Record<Tone, string> = {
-    neutral: "bg-white/[0.04] text-[var(--fg-soft)] border-white/10",
+    neutral:
+      "bg-[var(--surface-mute)] text-[var(--fg-mute)] border-[var(--line)]",
     accent:
-      "bg-[color-mix(in_oklch,var(--accent)_14%,transparent)] text-[var(--accent-fg)] border-[color-mix(in_oklch,var(--accent)_30%,transparent)]",
-    success: "bg-emerald-500/10 text-emerald-300 border-emerald-500/25",
-    warn: "bg-amber-400/10 text-amber-300 border-amber-400/25",
-    danger: "bg-rose-500/10 text-rose-300 border-rose-500/25",
-    info: "bg-sky-500/10 text-sky-300 border-sky-500/25",
+      "bg-[var(--risk-bg)] text-[var(--accent-fg)] border-[color-mix(in_oklch,var(--accent)_30%,transparent)]",
+    success:
+      "bg-[var(--ok-bg)] text-[var(--ok)] border-[color-mix(in_oklch,var(--ok)_28%,transparent)]",
+    warn:
+      "bg-[var(--warn-bg)] text-[var(--warn)] border-[color-mix(in_oklch,var(--warn)_28%,transparent)]",
+    danger:
+      "bg-[var(--risk-bg)] text-[var(--risk)] border-[color-mix(in_oklch,var(--risk)_28%,transparent)]",
+    info:
+      "bg-[var(--info-bg)] text-[var(--info)] border-[color-mix(in_oklch,var(--info)_28%,transparent)]",
   };
   const dotColors: Record<Tone, string> = {
-    neutral: "bg-zinc-400",
+    neutral: "bg-[var(--muted)]",
     accent: "bg-[var(--accent)]",
-    success: "bg-emerald-400",
-    warn: "bg-amber-400",
-    danger: "bg-rose-400",
-    info: "bg-sky-400",
+    success: "bg-[var(--ok)]",
+    warn: "bg-[var(--warn)]",
+    danger: "bg-[var(--risk)]",
+    info: "bg-[var(--info)]",
   };
   return (
     <span
@@ -124,8 +130,8 @@ export function Delta({
     value === 0
       ? "text-[var(--muted)]"
       : good
-        ? "text-emerald-400"
-        : "text-rose-400";
+        ? "text-[var(--ok)]"
+        : "text-[var(--risk)]";
   const sign = value > 0 ? "+" : "";
   return (
     <span
@@ -213,9 +219,9 @@ export function Kpi({
   footnote?: string;
 }) {
   return (
-    <div className="group rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5 transition hover:border-[var(--line-strong)]">
+    <div className="group rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5 shadow-[0_1px_2px_rgba(28,26,23,0.04)] transition hover:border-[var(--line-strong)]">
       <div className="flex items-start justify-between gap-3">
-        <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-[var(--muted)]">
+        <div className="font-mono text-[10.5px] uppercase tracking-[0.1em] text-[var(--muted)]">
           {label}
         </div>
         {delta !== undefined && (
@@ -250,6 +256,7 @@ export function Button({
   disabled,
   className = "",
   type = "button",
+  title,
 }: {
   variant?: Variant;
   size?: "sm" | "md" | "lg";
@@ -260,6 +267,7 @@ export function Button({
   disabled?: boolean;
   className?: string;
   type?: "button" | "submit";
+  title?: string;
 }) {
   const base =
     "inline-flex items-center justify-center gap-1.5 font-medium tracking-tight rounded-lg border transition disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap";
@@ -270,21 +278,22 @@ export function Button({
   };
   const variants: Record<Variant, string> = {
     primary:
-      "bg-[var(--accent)] text-[var(--on-accent)] border-[var(--accent)] hover:bg-[var(--accent-hov)] hover:border-[var(--accent-hov)] shadow-[0_1px_0_rgba(255,255,255,0.15)_inset]",
+      "bg-[var(--accent)] text-[var(--on-accent)] border-[var(--accent)] hover:bg-[var(--accent-hov)] hover:border-[var(--accent-hov)] shadow-[0_1px_2px_rgba(196,74,45,0.18)]",
     secondary:
-      "bg-white/[0.04] text-[var(--fg)] border-[var(--line)] hover:bg-white/[0.07] hover:border-[var(--line-strong)]",
+      "bg-[var(--surface)] text-[var(--fg)] border-[var(--line)] hover:bg-[var(--surface-mute)] hover:border-[var(--line-strong)]",
     ghost:
-      "bg-transparent text-[var(--fg-soft)] border-transparent hover:bg-white/[0.05] hover:text-[var(--fg)]",
+      "bg-transparent text-[var(--fg-soft)] border-transparent hover:bg-black/[0.04] hover:text-[var(--fg)]",
     outline:
-      "bg-transparent text-[var(--fg)] border-[var(--line)] hover:border-[var(--line-strong)]",
+      "bg-[var(--surface)] text-[var(--fg)] border-[var(--line)] hover:border-[var(--fg-mute)]",
     danger:
-      "bg-rose-500/15 text-rose-300 border-rose-500/30 hover:bg-rose-500/25",
+      "bg-[var(--risk-bg)] text-[var(--risk)] border-[color-mix(in_oklch,var(--risk)_30%,transparent)] hover:bg-[color-mix(in_oklch,var(--risk-bg)_70%,var(--risk))]",
   };
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
+      title={title}
       className={cx(base, sizes[size], variants[variant], className)}
     >
       {leftIcon}
@@ -296,7 +305,7 @@ export function Button({
 
 // ─── Skeleton ────────────────────────────────────────────────────────────
 export function Skeleton({ className = "" }: { className?: string }) {
-  return <div className={cx("animate-pulse rounded-md bg-white/[0.04]", className)} />;
+  return <div className={cx("animate-pulse rounded-md bg-black/[0.05]", className)} />;
 }
 
 // ─── Section header ──────────────────────────────────────────────────────
@@ -313,7 +322,7 @@ export function SectionHeader({
     <div className="mb-3 flex items-end justify-between gap-4">
       <div>
         {eyebrow && (
-          <div className="mb-1 text-[10.5px] font-medium uppercase tracking-[0.1em] text-[var(--muted)]">
+          <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted)]">
             {eyebrow}
           </div>
         )}
@@ -342,7 +351,7 @@ export function Stat2({
 }) {
   return (
     <div>
-      <div className="text-[10.5px] font-medium uppercase tracking-[0.1em] text-[var(--muted)]">
+      <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted)]">
         {label}
       </div>
       <div
@@ -369,7 +378,7 @@ export function MetricCell({
 }) {
   return (
     <div>
-      <div className="text-[10.5px] font-medium uppercase tracking-[0.08em] text-[var(--muted)]">
+      <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--muted)]">
         {label}
       </div>
       <div
@@ -397,9 +406,9 @@ export function KvItem({
 }) {
   const color =
     tone === "warn"
-      ? "text-amber-300"
+      ? "text-[var(--warn)]"
       : tone === "danger"
-        ? "text-rose-300"
+        ? "text-[var(--risk)]"
         : "text-[var(--fg)]";
   return (
     <span className="inline-flex items-baseline gap-1.5">

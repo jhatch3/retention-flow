@@ -15,7 +15,6 @@ here so the notebook and the script produce an identical model and threshold.
 from __future__ import annotations
 
 import argparse
-import tempfile
 from pathlib import Path
 
 import mlflow
@@ -151,14 +150,6 @@ def train_and_log(run_tags: dict[str, str] | None = None) -> dict:
             results[name] = metrics
             mlflow.log_metrics({f"{name}_{k}": v for k, v in metrics.items()})
 
-        importance = pd.Series(
-            model.feature_importances_, index=feature_cols, name="importance"
-        ).sort_values(ascending=False)
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "feature_importance.csv"
-            importance.to_csv(path)
-            mlflow.log_artifact(str(path))
-
         logged = mlflow.xgboost.log_model(model, name="model")
         run_id = run.info.run_id
 
@@ -177,7 +168,6 @@ def train_and_log(run_tags: dict[str, str] | None = None) -> dict:
         "model_version": version.version,
         "threshold": threshold,
         "results": results,
-        "importance": importance,
     }
 
 
@@ -194,9 +184,6 @@ def main() -> int:
     for split, metrics in out["results"].items():
         line = "  ".join(f"{k}={v:.3f}" for k, v in metrics.items())
         print(f"  {split:11} {line}")
-    print("\nTop features:")
-    for feat, imp in out["importance"].head(8).items():
-        print(f"  {feat:26} {imp:.4f}")
     return 0
 
 

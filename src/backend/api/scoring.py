@@ -196,8 +196,11 @@ def predictions_overview() -> dict:
         )).mappings().all()
 
         top = conn.execute(text(
-            f"select customer_unique_id, churn_probability from {PREDICTIONS_TABLE} "
-            f"order by churn_probability desc limit 10"
+            f"select p.customer_unique_id, p.churn_probability, dn.display_name "
+            f"from {PREDICTIONS_TABLE} p "
+            f"left join serving.customer_display_names dn "
+            f"  on dn.customer_unique_id = p.customer_unique_id "
+            f"order by p.churn_probability desc limit 10"
         )).mappings().all()
 
     scored_at = summary["scored_at"]
@@ -214,6 +217,8 @@ def predictions_overview() -> dict:
         "top_at_risk": [
             {
                 "customer_unique_id": t["customer_unique_id"],
+                "display_name": t["display_name"]
+                or f"Customer {t['customer_unique_id'][:8].upper()}",
                 "churn_probability": round(float(t["churn_probability"]), 4),
             }
             for t in top

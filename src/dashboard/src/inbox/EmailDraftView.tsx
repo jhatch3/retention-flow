@@ -47,7 +47,6 @@ export function EmailDraftView({
           </div>
         </div>
         <div className="flex shrink-0 gap-1.5">
-          <Chip tone="ok">DistilBERT {ev.distilbert_score} / 5</Chip>
           <Chip tone="info">Judge {ev.judge_score} / 5</Chip>
         </div>
       </div>

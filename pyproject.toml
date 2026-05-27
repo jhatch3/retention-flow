@@ -20,11 +20,9 @@ dependencies = [
     "matplotlib>=3.8",
     "fastapi>=0.110",
     "uvicorn>=0.30",
-    # Deep learning — DistilBERT email-quality classifier (PyTorch + Hugging Face)
-    "torch>=2.5",
-    "transformers>=4.45",
-    "datasets>=2.19",
-    "accelerate>=0.30",
+    # LLM — retention-email generator + LLM-as-judge
+    "anthropic>=0.40",
+    "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]

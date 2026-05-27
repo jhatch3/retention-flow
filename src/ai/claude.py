@@ -4,10 +4,10 @@ from datetime import datetime
 import anthropic
 from dotenv import load_dotenv
 
-from src.ai.prompts.RETENTION_EMAIL_SYSTEM_PROMPT import RETENTION_EMAIL_SYSTEM_PROMPT
-from src.ai.prompts.test_dataset import test_case_service_failure
-from src.ai.tools import run_tools
-from src.ai.tools_schema import FORMAT_RESPONSE_OUTPUT_CONFIG, TOOL_SCHEMAS
+from ai.prompts.RETENTION_EMAIL_SYSTEM_PROMPT import RETENTION_EMAIL_SYSTEM_PROMPT
+from ai.prompts.test_dataset import test_case_service_failure
+from ai.tools import run_tools
+from ai.tools_schema import FORMAT_RESPONSE_OUTPUT_CONFIG, TOOL_SCHEMAS
 
 load_dotenv()
 
@@ -131,11 +131,11 @@ def generate_email(customer_input: dict, use_db_tools: bool = True) -> tuple[dic
         "     Low/weak signal → 'browse' or 'feedback', NEVER 'redeem'.\n"
         "  4. Subject anchors to a specific signal (a number, a behavior, a question). "
         "     NO transactional 'Your X order arrived' framing.\n"
-        "  5. Sign-off uses the literal token '{{brand}}', not '[Brand]'.\n"
+        "  5. Sign-off is the exact string 'The Hatch Brand Team' — no '{{brand}}', no '[Brand]', no invented employee names.\n"
         "  6. Tool calls: if risk_tier='low' OR signals are weak (most top SHAPs protective), "
         "     call ZERO tools. Otherwise at most 2.\n"
-        "  7. Any number in the body must trace to customer_input or a tool output (quoted at "
-        "     the precision the tool returned — do not round 12.56 to 13).\n\n"
+        "  7. Numbers in the body trace to customer_input or a tool output. ROUND day counts to integers "
+        "     ('13 days', not '12.56 days' or '13.0 days'). Money may keep two decimals when meaningful.\n\n"
         "INPUT:\n"
         + json.dumps(customer_input),
     )

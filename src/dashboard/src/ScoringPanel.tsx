@@ -7,8 +7,8 @@ import { Button, Card, KvItem } from "./ui";
 import { RiskHistogram } from "./charts";
 
 function lineColor(stage: string): string {
-  if (stage === "done") return "text-emerald-300";
-  if (stage === "error") return "text-rose-300";
+  if (stage === "done") return "text-[var(--ok)]";
+  if (stage === "error") return "text-[var(--risk)]";
   if (stage === "score") return "text-[var(--fg-soft)]";
   return "text-[var(--muted)]";
 }
@@ -83,7 +83,7 @@ export function ScoringPanel({
         {/* Left — progress + log */}
         <div>
           <div className="mb-2.5 flex items-center gap-3">
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/[0.04]">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--surface-mute)]">
               <div
                 className="h-full bg-[var(--accent)] transition-all duration-300"
                 style={{ width: `${progress * 100}%` }}
@@ -96,7 +96,7 @@ export function ScoringPanel({
 
           <div
             ref={logRef}
-            className="h-44 overflow-auto rounded-lg border border-[var(--line)] bg-[var(--surface-deep)] p-3 font-mono text-[11.5px] leading-relaxed"
+            className="h-44 overflow-auto rounded-lg border border-[var(--line)] bg-[var(--surface-soft)] p-3 font-mono text-[11.5px] leading-relaxed"
           >
             {log.length === 0 ? (
               <div className="text-[var(--muted)]">

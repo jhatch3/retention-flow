@@ -18,8 +18,8 @@ import pandas as pd
 import xgboost as xgb
 from mlflow.tracking import MlflowClient
 
-from src.backend.ml.data import FEATURE_COLUMNS, load_gold, prepare_features
-from src.backend.ml.train import CHAMPION_ALIAS, MLFLOW_URI, REGISTERED_MODEL
+from backend.ml.data import FEATURE_COLUMNS, load_gold, prepare_features
+from backend.ml.train import CHAMPION_ALIAS, MLFLOW_URI, REGISTERED_MODEL
 
 
 def _risk_tier(prob: float) -> str:

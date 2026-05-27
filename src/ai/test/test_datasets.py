@@ -1,8 +1,8 @@
 from datetime import datetime
 
-from src.ai.claude import generate_email
-from src.ai.grader import grade_email
-from src.ai.prompts.test_dataset import TEST_CASES
+from ai.claude import generate_email
+from ai.grader import grade_email
+from ai.prompts.test_dataset import TEST_CASES
 
 
 def _verdict_counts(clauses):

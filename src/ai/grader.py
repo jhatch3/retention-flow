@@ -1,12 +1,12 @@
 import json
 
-from src.ai.claude import (
+from ai.claude import (
     add_user_message,
     run_conversation,
     text_from_message,
 )
-from src.ai.prompts.GRADER_SYSTEM_PROMPT import GRADER_SYSTEM_PROMPT
-from src.ai.tools_schema import GRADER_OUTPUT_CONFIG
+from ai.prompts.GRADER_SYSTEM_PROMPT import GRADER_SYSTEM_PROMPT
+from ai.tools_schema import GRADER_OUTPUT_CONFIG
 
 
 GRADER_SYSTEM_BLOCKS = [

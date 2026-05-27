@@ -96,11 +96,10 @@ def test_detail_drivers_sorted_by_absolute_contribution():
     assert mags == sorted(mags, reverse=True)
 
 
-def test_eval_pass_is_derived_from_both_tiers():
-    # Camila: distilbert 4.6 + judge 4.5, threshold 4.0 -> passes.
+def test_eval_pass_is_derived_from_judge_score():
+    # Camila: judge 4.5, threshold 4.0 -> passes.
     passing = inbox.inbox_customer("a1b2c3d4e5f6a7b8")["eval"]
     assert passing["passed"] is True
-    assert passing["agreement_delta"] == 0.1
     # Thiago: judge 3.6 is below the 4.0 bar -> fails.
     failing = inbox.inbox_customer("f6a7b8c9d0e1f2a3")["eval"]
     assert failing["passed"] is False

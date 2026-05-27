@@ -8,17 +8,16 @@ One JSON API over three sources:
 - GET  /api/warehouse/tables    every table + view in the warehouse schemas
 - GET  /api/warehouse/sample    first N rows of one table or view
 - GET  /api/models              MLflow registered churn-model versions
-- GET  /api/feature-importance  champion model feature importances
 - GET  /api/predictions         summary of the latest batch scoring
 - GET  /api/shap                global SHAP summary + per-customer breakdowns
 - GET  /api/runs                recent rebuild + scoring runs
-- GET  /api/eval/model          DistilBERT email-quality model + metrics
 - GET  /api/inbox/customers          at-risk customer queue (Triage Inbox)
 - GET  /api/inbox/customers/{id}     one customer's triage detail
 - POST /api/score               run batch scoring (one-shot)
 - GET  /api/score/stream        run batch scoring, streaming progress (SSE)
 - GET  /api/pipeline/rebuild/stream  drop analytics + dbt build, timed (SSE)
-- GET  /api/pipeline/run/stream      full pipeline: dbt + train + score (SSE)
+- GET  /api/pipeline/run/stream      dbt + (train) + score + (emails) (SSE)
+- GET  /api/pipeline/run-quick/stream back-compat alias for train=0&emails=0
 """
 
 from __future__ import annotations
@@ -30,9 +29,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from .email_eval import eval_model_card
 from .inbox import inbox_customer, inbox_customers
-from .rebuild import full_pipeline_events, rebuild_events
+from .rebuild import (
+    full_pipeline_events,
+    pipeline_events,
+    quick_pipeline_events,
+    rebuild_events,
+)
 from .runs import recent_runs
 from .scoring import (
     predictions_overview,
@@ -42,7 +45,6 @@ from .scoring import (
 )
 from .services import (
     dbt_status,
-    feature_importance,
     model_registry,
     warehouse_overview,
     warehouse_sample,
@@ -95,12 +97,6 @@ def models() -> dict:
     return model_registry()
 
 
-@app.get("/api/feature-importance")
-def importance() -> dict:
-    """Champion model feature importances."""
-    return feature_importance()
-
-
 @app.get("/api/predictions")
 def predictions() -> dict:
     """Summary of the predictions currently in serving.predictions."""
@@ -113,16 +109,34 @@ def shap() -> dict:
     return shap_overview()
 
 
+@app.get("/api/emails")
+def emails(limit: int = 20) -> dict:
+    """Recent retention emails from serving.generated_emails (most recent first)."""
+    from .emails import recent_emails
+
+    return recent_emails(limit=limit)
+
+
+@app.get("/api/eval/insights")
+def eval_insights() -> dict:
+    """Aggregate the LLM-as-judge grades across all currently-scored emails."""
+    from .insights import judge_insights
+
+    return judge_insights()
+
+
+@app.get("/api/eval/grades")
+def eval_grades(limit: int = 50) -> dict:
+    """Per-email judge output (reasoning, weaknesses, clauses, score)."""
+    from .insights import judge_grades
+
+    return judge_grades(limit=limit)
+
+
 @app.get("/api/runs")
 def runs() -> dict:
     """Recent pipeline rebuilds and scoring runs."""
     return recent_runs()
-
-
-@app.get("/api/eval/model")
-def eval_model() -> dict:
-    """Registered DistilBERT email-quality model and its champion metrics."""
-    return eval_model_card()
 
 
 @app.get("/api/inbox/customers")
@@ -175,6 +189,23 @@ def rebuild_stream() -> StreamingResponse:
 
 
 @app.get("/api/pipeline/run/stream")
-def pipeline_run_stream() -> StreamingResponse:
-    """Run the full pipeline — dbt rebuild, training, scoring — streaming progress."""
-    return _sse(full_pipeline_events())
+def pipeline_run_stream(
+    train: bool = True,
+    emails: bool = True,
+    top_n: int = 50,
+) -> StreamingResponse:
+    """Run the pipeline with optional training and email generation, streaming
+    progress events. Phases: dbt rebuild → (train) → score → (emails).
+
+    ``top_n`` controls how many at-risk customers get a drafted email when
+    ``emails=true``. Clamped to [1, 500] so a single request can't fan out
+    indefinitely.
+    """
+    n = max(1, min(int(top_n), 500))
+    return _sse(pipeline_events(train=train, emails=emails, email_top_n=n))
+
+
+@app.get("/api/pipeline/run-quick/stream")
+def pipeline_run_quick_stream() -> StreamingResponse:
+    """Back-compat alias — dbt rebuild + scoring, no retrain, no emails."""
+    return _sse(quick_pipeline_events())

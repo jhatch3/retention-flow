@@ -1,9 +1,9 @@
 """Mock data for the Triage Inbox (v1).
 
 The Inbox serves this fixture set until the real wiring lands in v1.1 — gold-table
-sourcing, LLM-drafted emails, and live DistilBERT/judge eval. Each record is the
-full per-customer detail; ``inbox.py`` projects the queue summary from it and
-computes the tier, eval pass/fail, and totals so nothing is duplicated here.
+sourcing, LLM-drafted emails, and live LLM-judge eval. Each record is the full
+per-customer detail; ``inbox.py`` projects the queue summary from it and computes
+the tier, eval pass/fail, and totals so nothing is duplicated here.
 
 See HANDOFF-triage-inbox.md §4 for the field contract.
 """
@@ -74,8 +74,7 @@ INBOX_CUSTOMERS: list[dict] = [
                 "— Mariana, Olist Customer Success"
             ),
         },
-        "eval": {"distilbert_score": 4.6, "distilbert_ms": 22,
-                 "judge_score": 4.5, "judge_ms": 1400, "pass_threshold": 4.0},
+        "eval": {"judge_score": 4.5, "judge_ms": 1400, "pass_threshold": 4.0},
         "plays": [
             {"id": "apology-credit", "name": "Apology + R$ 40 credit",
              "active": True, "save_rate_pct": 31, "sample_n": 240},
@@ -141,8 +140,7 @@ INBOX_CUSTOMERS: list[dict] = [
                 "— Mariana, Olist Customer Success"
             ),
         },
-        "eval": {"distilbert_score": 4.4, "distilbert_ms": 24,
-                 "judge_score": 4.3, "judge_ms": 1520, "pass_threshold": 4.0},
+        "eval": {"judge_score": 4.3, "judge_ms": 1520, "pass_threshold": 4.0},
         "plays": [
             {"id": "express-freight-waiver", "name": "Express network + freight waiver",
              "active": True, "save_rate_pct": 28, "sample_n": 165},
@@ -206,8 +204,7 @@ INBOX_CUSTOMERS: list[dict] = [
                 "— Mariana, Olist Customer Success"
             ),
         },
-        "eval": {"distilbert_score": 4.2, "distilbert_ms": 21,
-                 "judge_score": 4.4, "judge_ms": 1380, "pass_threshold": 4.0},
+        "eval": {"judge_score": 4.4, "judge_ms": 1380, "pass_threshold": 4.0},
         "plays": [
             {"id": "reengage-discount", "name": "15% win-back discount",
              "active": True, "save_rate_pct": 22, "sample_n": 310},
@@ -272,8 +269,7 @@ INBOX_CUSTOMERS: list[dict] = [
                 "— Mariana, Olist Customer Success"
             ),
         },
-        "eval": {"distilbert_score": 4.5, "distilbert_ms": 23,
-                 "judge_score": 4.4, "judge_ms": 1460, "pass_threshold": 4.0},
+        "eval": {"judge_score": 4.4, "judge_ms": 1460, "pass_threshold": 4.0},
         "plays": [
             {"id": "loyalty-thanks", "name": "Loyalty thank-you + free shipping",
              "active": True, "save_rate_pct": 26, "sample_n": 198},
@@ -337,8 +333,7 @@ INBOX_CUSTOMERS: list[dict] = [
                 "— Mariana, Olist Customer Success"
             ),
         },
-        "eval": {"distilbert_score": 4.1, "distilbert_ms": 22,
-                 "judge_score": 4.2, "judge_ms": 1340, "pass_threshold": 4.0},
+        "eval": {"judge_score": 4.2, "judge_ms": 1340, "pass_threshold": 4.0},
         "plays": [
             {"id": "free-shipping", "name": "Free shipping, next order",
              "active": True, "save_rate_pct": 20, "sample_n": 275},
@@ -400,8 +395,7 @@ INBOX_CUSTOMERS: list[dict] = [
                 "— Mariana, Olist Customer Success"
             ),
         },
-        "eval": {"distilbert_score": 3.9, "distilbert_ms": 22,
-                 "judge_score": 3.6, "judge_ms": 1290, "pass_threshold": 4.0},
+        "eval": {"judge_score": 3.6, "judge_ms": 1290, "pass_threshold": 4.0},
         "plays": [
             {"id": "cross-category", "name": "Cross-category discovery + 10% off",
              "active": True, "save_rate_pct": 16, "sample_n": 420},
@@ -466,8 +460,7 @@ INBOX_CUSTOMERS: list[dict] = [
                 "— Mariana, Olist Customer Success"
             ),
         },
-        "eval": {"distilbert_score": 4.7, "distilbert_ms": 21,
-                 "judge_score": 4.6, "judge_ms": 1410, "pass_threshold": 4.0},
+        "eval": {"judge_score": 4.6, "judge_ms": 1410, "pass_threshold": 4.0},
         "plays": [
             {"id": "loyalty-thanks", "name": "Loyalty thank-you + early access",
              "active": True, "save_rate_pct": 12, "sample_n": 530},

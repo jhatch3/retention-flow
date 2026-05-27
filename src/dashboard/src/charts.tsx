@@ -40,7 +40,7 @@ export function ChartTooltip({
 }: TipProps) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg border border-[var(--line-strong)] bg-[var(--surface-strong)] px-3 py-2 shadow-xl backdrop-blur-md">
+    <div className="rounded-lg border border-[var(--line-strong)] bg-[var(--surface)] px-3 py-2 shadow-lg">
       {label !== undefined && (
         <div className="mb-1 text-[10.5px] font-medium uppercase tracking-wide text-[var(--muted)]">
           {labelFormat ? labelFormat(label) : label}
@@ -201,7 +201,7 @@ export function RiskHistogram({
             valueFormat: (v) => v.toLocaleString(),
             labelFormat: (l) => `${l}% churn probability`,
           })}
-          cursor={{ fill: "rgba(255,255,255,0.03)" }}
+          cursor={{ fill: "rgba(28,26,23,0.04)" }}
         />
         <Bar dataKey="count" radius={[3, 3, 0, 0]}>
           {enriched.map((d, i) => (
@@ -224,10 +224,10 @@ export function RiskHistogram({
 const CAT_COLOR: Record<string, string> = {
   recency: "var(--accent)",
   frequency: "var(--accent-2)",
-  monetary: "oklch(0.78 0.14 145)",
-  sentiment: "oklch(0.76 0.13 60)",
-  fulfillment: "oklch(0.7 0.16 30)",
-  geographic: "oklch(0.68 0.06 250)",
+  monetary: "var(--ok)",
+  sentiment: "var(--warn)",
+  fulfillment: "var(--risk)",
+  geographic: "var(--info)",
 };
 
 export function FeatureImportanceList({
@@ -254,7 +254,7 @@ export function FeatureImportanceList({
                   {category}
                 </span>
               </div>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.04]">
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-mute)]">
                 <div
                   className="h-full rounded-full transition-all"
                   style={{
@@ -298,16 +298,16 @@ export function SegmentChurn({
               {(s.churn_rate * 100).toFixed(1)}%
             </span>
           </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.04]">
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-mute)]">
             <div
               className="h-full rounded-full transition-all"
               style={{
                 width: `${(s.churn_rate / max) * 100}%`,
                 background:
                   s.churn_rate > 0.5
-                    ? "oklch(0.7 0.16 30)"
+                    ? "var(--risk)"
                     : s.churn_rate > 0.35
-                      ? "oklch(0.76 0.13 60)"
+                      ? "var(--warn)"
                       : "var(--accent)",
               }}
             />

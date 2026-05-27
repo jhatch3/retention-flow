@@ -14,7 +14,7 @@ pattern in src/backend/api/scoring.py and services.py).
 
 from sqlalchemy import text
 
-from src.backend.db.session import engine
+from backend.db.session import engine
 
 
 def get_customer_delivery_stats(customer_unique_id: str) -> dict:
@@ -49,19 +49,21 @@ def get_customer_delivery_stats(customer_unique_id: str) -> dict:
         customer = conn.execute(customer_sql, {"cuid": customer_unique_id}).mappings().first()
         marketplace = conn.execute(marketplace_sql).mappings().first()
 
+    # Day counts are rounded to integers so the generator can cite them
+    # directly in the body without producing "12.56 days. That gap is on us."
     customer_avg = float(customer["avg_days"]) if customer and customer["avg_days"] is not None else None
     marketplace_avg = float(marketplace["avg_days"]) if marketplace and marketplace["avg_days"] is not None else None
     delivered_orders = int(customer["delivered_orders"]) if customer else 0
 
     gap = None
     if customer_avg is not None and marketplace_avg is not None:
-        gap = round(customer_avg - marketplace_avg, 2)
+        gap = int(round(customer_avg - marketplace_avg))
 
     return {
         "customer_unique_id": customer_unique_id,
-        "customer_avg_delivery_days": round(customer_avg, 2) if customer_avg is not None else None,
+        "customer_avg_delivery_days": int(round(customer_avg)) if customer_avg is not None else None,
         "customer_delivered_orders": delivered_orders,
-        "marketplace_avg_delivery_days": round(marketplace_avg, 2) if marketplace_avg is not None else None,
+        "marketplace_avg_delivery_days": int(round(marketplace_avg)) if marketplace_avg is not None else None,
         "gap_vs_marketplace_days": gap,
     }
 
@@ -112,9 +114,9 @@ def get_customer_recent_orders(customer_unique_id: str, limit: int = 5) -> list[
                 "order_status": r["order_status"],
                 "purchase_date": r["purchase_date"],
                 "delivered_date": r["delivered_date"],
-                "delivery_days": round(float(r["delivery_days"]), 1) if r["delivery_days"] is not None else None,
+                "delivery_days": int(round(float(r["delivery_days"]))) if r["delivery_days"] is not None else None,
                 "categories": r["categories"],
-                "avg_review_score": round(float(r["avg_review_score"]), 2) if r["avg_review_score"] is not None else None,
+                "avg_review_score": round(float(r["avg_review_score"]), 1) if r["avg_review_score"] is not None else None,
             }
         )
     return out
@@ -161,8 +163,8 @@ def get_category_baseline(category: str) -> dict:
     return {
         "category": row["category"],
         "order_count": int(row["order_count"]),
-        "avg_delivery_days": round(float(row["avg_delivery_days"]), 2) if row["avg_delivery_days"] is not None else None,
-        "avg_review_score": round(float(row["avg_review_score"]), 2) if row["avg_review_score"] is not None else None,
+        "avg_delivery_days": int(round(float(row["avg_delivery_days"]))) if row["avg_delivery_days"] is not None else None,
+        "avg_review_score": round(float(row["avg_review_score"]), 1) if row["avg_review_score"] is not None else None,
     }
 
 

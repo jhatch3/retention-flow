@@ -196,11 +196,10 @@ def _format_value(feature_name: str, value: float | None) -> str:
 
 def _queue_rows(threshold: float, limit: int) -> list[dict]:
     """Top-N at-risk customers with the metadata the queue + detail need."""
-    # Take the top-N predictions FIRST, then correlate the per-customer lookups
-    # to just those rows via LATERAL joins. The previous version materialised
-    # DISTINCT ON / GROUP BY over the entire stg_customers + int_customer_orders
-    # tables (~all customers, ~all orders) before discarding everything but the
-    # top-N — the LATERALs touch only the N customers we actually return.
+    # int_customer_orders is a heavy multi-join VIEW; a LATERAL re-executes it
+    # per customer (and the customer filter can't push through its aggregations),
+    # so we scan it ONCE and derive both the latest-order fields (DISTINCT ON,
+    # newest first) and first_purchase (window MIN) in a single pass.
     sql = text(
         """
         WITH top_pred AS (
@@ -214,6 +213,24 @@ def _queue_rows(threshold: float, limit: int) -> list[dict]:
               FROM serving.predictions
              ORDER BY churn_probability DESC
              LIMIT :limit
+        ),
+        cust_loc AS (
+            SELECT DISTINCT ON (customer_unique_id)
+                   customer_unique_id, customer_city, customer_state
+              FROM analytics.stg_customers
+        ),
+        roll AS (
+            SELECT DISTINCT ON (customer_unique_id)
+                   customer_unique_id,
+                   order_purchase_timestamp,
+                   payment_value,
+                   item_count,
+                   freight_value,
+                   MIN(order_purchase_timestamp)
+                     OVER (PARTITION BY customer_unique_id) AS first_purchase
+              FROM analytics.int_customer_orders
+             WHERE order_status NOT IN ('canceled', 'unavailable')
+             ORDER BY customer_unique_id, order_purchase_timestamp DESC
         )
         SELECT tp.prediction_id,
                tp.customer_unique_id,
@@ -232,33 +249,17 @@ def _queue_rows(threshold: float, limit: int) -> list[dict]:
                lo.payment_value,
                lo.item_count,
                lo.freight_value,
-               fo.first_purchase,
+               lo.first_purchase,
                ts.feature_name AS top_feature,
                dn.display_name
           FROM top_pred tp
           LEFT JOIN analytics.customer_features cf
             ON cf.customer_unique_id = tp.customer_unique_id
            AND cf.snapshot_date     = tp.snapshot_date
-          LEFT JOIN LATERAL (
-                SELECT customer_city, customer_state
-                  FROM analytics.stg_customers s
-                 WHERE s.customer_unique_id = tp.customer_unique_id
-                 LIMIT 1
-          ) cl ON TRUE
-          LEFT JOIN LATERAL (
-                SELECT order_purchase_timestamp, payment_value,
-                       item_count, freight_value
-                  FROM analytics.int_customer_orders o
-                 WHERE o.customer_unique_id = tp.customer_unique_id
-                   AND o.order_status NOT IN ('canceled', 'unavailable')
-                 ORDER BY o.order_purchase_timestamp DESC
-                 LIMIT 1
-          ) lo ON TRUE
-          LEFT JOIN LATERAL (
-                SELECT MIN(order_purchase_timestamp) AS first_purchase
-                  FROM analytics.int_customer_orders o
-                 WHERE o.customer_unique_id = tp.customer_unique_id
-          ) fo ON TRUE
+          LEFT JOIN cust_loc cl
+            ON cl.customer_unique_id = tp.customer_unique_id
+          LEFT JOIN roll lo
+            ON lo.customer_unique_id = tp.customer_unique_id
           LEFT JOIN serving.shap_values ts
             ON ts.prediction_id = tp.prediction_id
            AND ts.rank = 1
@@ -630,7 +631,7 @@ def inbox_customer(customer_id: str) -> dict | None:
                cl.customer_city, cl.customer_state,
                lo.order_purchase_timestamp, lo.payment_value,
                lo.item_count, lo.freight_value,
-               fo.first_purchase,
+               lo.first_purchase,
                ts.feature_name AS top_feature,
                dn.display_name
           FROM serving.predictions p
@@ -643,20 +644,19 @@ def inbox_customer(customer_id: str) -> dict | None:
                  WHERE s.customer_unique_id = p.customer_unique_id
                  LIMIT 1
           ) cl ON TRUE
+          -- One scan of the heavy order view: latest order (DISTINCT ON) +
+          -- first_purchase (window MIN) for this customer, in a single pass.
           LEFT JOIN LATERAL (
-                SELECT order_purchase_timestamp, payment_value,
-                       item_count, freight_value
+                SELECT DISTINCT ON (customer_unique_id)
+                       order_purchase_timestamp, payment_value,
+                       item_count, freight_value,
+                       MIN(order_purchase_timestamp)
+                         OVER (PARTITION BY customer_unique_id) AS first_purchase
                   FROM analytics.int_customer_orders o
                  WHERE o.customer_unique_id = p.customer_unique_id
                    AND o.order_status NOT IN ('canceled', 'unavailable')
-                 ORDER BY o.order_purchase_timestamp DESC
-                 LIMIT 1
+                 ORDER BY customer_unique_id, order_purchase_timestamp DESC
           ) lo ON TRUE
-          LEFT JOIN LATERAL (
-                SELECT MIN(order_purchase_timestamp) AS first_purchase
-                  FROM analytics.int_customer_orders o
-                 WHERE o.customer_unique_id = p.customer_unique_id
-          ) fo ON TRUE
           LEFT JOIN serving.shap_values ts
             ON ts.prediction_id = p.id
            AND ts.rank = 1

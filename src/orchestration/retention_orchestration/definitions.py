@@ -47,6 +47,21 @@ dbt_project = DbtProject(
 dbt_project.prepare_if_dev()
 
 
+def _log_progress(context, stage: str, verb: str):
+    """Build a throttled ``progress_cb(done, total)`` that logs live ``n/total``.
+
+    Logs at ~5% increments (and always the final item) so a 500-item batch
+    surfaces steady progress in the Dagster run logs without flooding them.
+    """
+
+    def cb(done: int, total: int) -> None:
+        step = max(1, total // 20)
+        if done % step == 0 or done == total:
+            context.log.info(f"{stage}: {done}/{total} {verb}")
+
+    return cb
+
+
 @dbt_assets(manifest=dbt_project.manifest_path)
 def retention_dbt_assets(context, dbt: DbtCliResource):
     """All dbt models as assets; all dbt tests as asset checks."""
@@ -116,7 +131,9 @@ def retention_emails(context) -> MaterializeResult:
     )
 
     summary = generate_top_n_emails(
-        top_n=DEFAULT_TOP_N, concurrency=DEFAULT_CONCURRENCY
+        top_n=DEFAULT_TOP_N,
+        concurrency=DEFAULT_CONCURRENCY,
+        progress_cb=_log_progress(context, "emails", "drafted"),
     )
     return MaterializeResult(metadata={k: summary[k] for k in sorted(summary)})
 
@@ -136,14 +153,20 @@ def eval_scores(context) -> MaterializeResult:
     follows. Idempotent: only emails missing from ``serving.eval_scores`` are
     graded, so re-running this asset is cheap.
     """
+    from ai.batch import DEFAULT_TOP_N
     from ai.judge_batch import (
         DEFAULT_CONCURRENCY,
         DEFAULT_LIMIT,
         grade_unjudged_emails,
     )
 
+    # Cover the full nightly email batch: retention_emails drafts up to
+    # DEFAULT_TOP_N emails, so the judge limit must be at least that or the tail
+    # of each night's batch would go ungraded.
     summary = grade_unjudged_emails(
-        limit=DEFAULT_LIMIT, concurrency=DEFAULT_CONCURRENCY
+        limit=max(DEFAULT_LIMIT, DEFAULT_TOP_N),
+        concurrency=DEFAULT_CONCURRENCY,
+        progress_cb=_log_progress(context, "judge", "graded"),
     )
     return MaterializeResult(metadata={k: summary[k] for k in sorted(summary)})
 

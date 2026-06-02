@@ -483,7 +483,7 @@ export function EmailOutreachCard() {
                           : "text-[var(--warn)]",
                       )}
                     >
-                      {e.judge_score.toFixed(1)} / 5
+                      {e.judge_score.toFixed(1)} / 10
                     </span>
                   ) : (
                     <span className="font-mono text-[11px] text-[var(--muted)]">

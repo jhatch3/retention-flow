@@ -25,9 +25,9 @@ if TYPE_CHECKING:
 class EvalScore(Base, TimestampMixin):
     """A quality score for a generated email from the LLM-as-judge evaluator.
 
-    Each email is graded once on the 1-5 ``overall_score`` scale, with a
-    ``passed`` gate on the same scale. ``judge_model`` records which model
-    produced the score.
+    Each email is graded once on the 1-10 ``overall_score`` scale, with a
+    ``passed`` gate at 7.0 (see ``ai.judge_batch.PASS_THRESHOLD``).
+    ``judge_model`` records which model produced the score.
     """
 
     __tablename__ = "eval_scores"
@@ -46,7 +46,7 @@ class EvalScore(Base, TimestampMixin):
         SAEnum(Evaluator, name="evaluator", schema="serving")
     )
 
-    # Overall email-quality grade (1-5) and the inline pass/fail gate.
+    # Overall email-quality grade (1-10) and the inline pass/fail gate.
     overall_score: Mapped[float] = mapped_column(Float)
     passed: Mapped[bool] = mapped_column(Boolean)
 

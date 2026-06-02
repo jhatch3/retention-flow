@@ -26,7 +26,11 @@ from typing import Iterable
 
 from sqlalchemy import text
 
+from ai.config import DEFAULT_MODEL
+from ai.judge_batch import PASS_THRESHOLD
+
 from ..db.session import engine
+from ..domain.tiers import risk_tier_short
 
 # Queue is bounded by SHAP coverage — SHAP is only persisted for the top-200
 # at-risk customers in this snapshot, so the queue can show at most that many.
@@ -121,13 +125,7 @@ DEFAULT_PLAYS = [
 
 
 def _tier(risk: float, threshold: float) -> str:
-    if risk >= 0.85:
-        return "crit"
-    if risk >= 0.65:
-        return "high"
-    if risk >= threshold:
-        return "med"
-    return "low"
+    return risk_tier_short(risk, threshold)
 
 
 def _display_name(customer_unique_id: str, name_from_db: str | None = None) -> str:
@@ -198,6 +196,11 @@ def _format_value(feature_name: str, value: float | None) -> str:
 
 def _queue_rows(threshold: float, limit: int) -> list[dict]:
     """Top-N at-risk customers with the metadata the queue + detail need."""
+    # Take the top-N predictions FIRST, then correlate the per-customer lookups
+    # to just those rows via LATERAL joins. The previous version materialised
+    # DISTINCT ON / GROUP BY over the entire stg_customers + int_customer_orders
+    # tables (~all customers, ~all orders) before discarding everything but the
+    # top-N — the LATERALs touch only the N customers we actually return.
     sql = text(
         """
         WITH top_pred AS (
@@ -211,36 +214,6 @@ def _queue_rows(threshold: float, limit: int) -> list[dict]:
               FROM serving.predictions
              ORDER BY churn_probability DESC
              LIMIT :limit
-        ),
-        cust_loc AS (
-            SELECT DISTINCT ON (customer_unique_id)
-                   customer_unique_id, customer_city, customer_state
-              FROM analytics.stg_customers
-        ),
-        last_order AS (
-            SELECT DISTINCT ON (customer_unique_id)
-                   customer_unique_id,
-                   order_purchase_timestamp,
-                   payment_value,
-                   item_count,
-                   freight_value,
-                   review_score,
-                   delivery_days
-              FROM analytics.int_customer_orders
-             WHERE order_status NOT IN ('canceled', 'unavailable')
-             ORDER BY customer_unique_id, order_purchase_timestamp DESC
-        ),
-        first_order AS (
-            SELECT customer_unique_id,
-                   MIN(order_purchase_timestamp) AS first_purchase
-              FROM analytics.int_customer_orders
-             GROUP BY customer_unique_id
-        ),
-        top_shap AS (
-            SELECT DISTINCT ON (prediction_id)
-                   prediction_id, feature_name, feature_value, shap_value
-              FROM serving.shap_values
-             WHERE rank = 1
         )
         SELECT tp.prediction_id,
                tp.customer_unique_id,
@@ -266,14 +239,29 @@ def _queue_rows(threshold: float, limit: int) -> list[dict]:
           LEFT JOIN analytics.customer_features cf
             ON cf.customer_unique_id = tp.customer_unique_id
            AND cf.snapshot_date     = tp.snapshot_date
-          LEFT JOIN cust_loc cl
-            ON cl.customer_unique_id = tp.customer_unique_id
-          LEFT JOIN last_order lo
-            ON lo.customer_unique_id = tp.customer_unique_id
-          LEFT JOIN first_order fo
-            ON fo.customer_unique_id = tp.customer_unique_id
-          LEFT JOIN top_shap ts
+          LEFT JOIN LATERAL (
+                SELECT customer_city, customer_state
+                  FROM analytics.stg_customers s
+                 WHERE s.customer_unique_id = tp.customer_unique_id
+                 LIMIT 1
+          ) cl ON TRUE
+          LEFT JOIN LATERAL (
+                SELECT order_purchase_timestamp, payment_value,
+                       item_count, freight_value
+                  FROM analytics.int_customer_orders o
+                 WHERE o.customer_unique_id = tp.customer_unique_id
+                   AND o.order_status NOT IN ('canceled', 'unavailable')
+                 ORDER BY o.order_purchase_timestamp DESC
+                 LIMIT 1
+          ) lo ON TRUE
+          LEFT JOIN LATERAL (
+                SELECT MIN(order_purchase_timestamp) AS first_purchase
+                  FROM analytics.int_customer_orders o
+                 WHERE o.customer_unique_id = tp.customer_unique_id
+          ) fo ON TRUE
+          LEFT JOIN serving.shap_values ts
             ON ts.prediction_id = tp.prediction_id
+           AND ts.rank = 1
           LEFT JOIN serving.customer_display_names dn
             ON dn.customer_unique_id = tp.customer_unique_id
          ORDER BY tp.churn_probability DESC
@@ -527,7 +515,7 @@ def _email_and_eval(prediction_id: int) -> tuple[dict, dict]:
     )
     grade_sql = text(
         """
-        SELECT overall_score, latency_ms, passed
+        SELECT overall_score, latency_ms, passed, reasoning
           FROM serving.eval_scores
          WHERE email_id = :eid
          ORDER BY created_at DESC
@@ -550,7 +538,7 @@ def _email_and_eval(prediction_id: int) -> tuple[dict, dict]:
     )
     email = {
         "generated_at": generated_at,
-        "generated_by": email_row["model"] or "claude-haiku-4-5",
+        "generated_by": email_row["model"] or DEFAULT_MODEL,
         "persona": "evidence-grounded",
         "grounded_on": "top SHAP drivers",
         "subject": email_row["subject"] or "",
@@ -562,8 +550,9 @@ def _email_and_eval(prediction_id: int) -> tuple[dict, dict]:
         {
             "judge_score": round(float(grade_row["overall_score"]), 2),
             "judge_ms": int(grade_row["latency_ms"] or 0),
-            "pass_threshold": 4.0,
+            "pass_threshold": PASS_THRESHOLD,
             "passed": bool(grade_row["passed"]),
+            "reasoning": grade_row["reasoning"] or "",
         }
         if grade_row is not None
         else _empty_eval()
@@ -590,7 +579,13 @@ def _empty_email() -> dict:
 
 
 def _empty_eval() -> dict:
-    return {"judge_score": 0.0, "judge_ms": 0, "pass_threshold": 4.0, "passed": False}
+    return {
+        "judge_score": 0.0,
+        "judge_ms": 0,
+        "pass_threshold": PASS_THRESHOLD,
+        "passed": False,
+        "reasoning": "",
+    }
 
 
 def _plays_for(top_feature: str | None) -> list[dict]:
@@ -642,28 +637,29 @@ def inbox_customer(customer_id: str) -> dict | None:
           LEFT JOIN analytics.customer_features cf
             ON cf.customer_unique_id = p.customer_unique_id
            AND cf.snapshot_date     = p.snapshot_date
-          LEFT JOIN (
-            SELECT DISTINCT ON (customer_unique_id)
-                   customer_unique_id, customer_city, customer_state
-              FROM analytics.stg_customers
-          ) cl ON cl.customer_unique_id = p.customer_unique_id
-          LEFT JOIN (
-            SELECT DISTINCT ON (customer_unique_id)
-                   customer_unique_id, order_purchase_timestamp, payment_value,
-                   item_count, freight_value, review_score, delivery_days
-              FROM analytics.int_customer_orders
-             WHERE order_status NOT IN ('canceled', 'unavailable')
-             ORDER BY customer_unique_id, order_purchase_timestamp DESC
-          ) lo ON lo.customer_unique_id = p.customer_unique_id
-          LEFT JOIN (
-            SELECT customer_unique_id, MIN(order_purchase_timestamp) AS first_purchase
-              FROM analytics.int_customer_orders
-             GROUP BY customer_unique_id
-          ) fo ON fo.customer_unique_id = p.customer_unique_id
-          LEFT JOIN (
-            SELECT DISTINCT ON (prediction_id)
-                   prediction_id, feature_name FROM serving.shap_values WHERE rank = 1
-          ) ts ON ts.prediction_id = p.id
+          LEFT JOIN LATERAL (
+                SELECT customer_city, customer_state
+                  FROM analytics.stg_customers s
+                 WHERE s.customer_unique_id = p.customer_unique_id
+                 LIMIT 1
+          ) cl ON TRUE
+          LEFT JOIN LATERAL (
+                SELECT order_purchase_timestamp, payment_value,
+                       item_count, freight_value
+                  FROM analytics.int_customer_orders o
+                 WHERE o.customer_unique_id = p.customer_unique_id
+                   AND o.order_status NOT IN ('canceled', 'unavailable')
+                 ORDER BY o.order_purchase_timestamp DESC
+                 LIMIT 1
+          ) lo ON TRUE
+          LEFT JOIN LATERAL (
+                SELECT MIN(order_purchase_timestamp) AS first_purchase
+                  FROM analytics.int_customer_orders o
+                 WHERE o.customer_unique_id = p.customer_unique_id
+          ) fo ON TRUE
+          LEFT JOIN serving.shap_values ts
+            ON ts.prediction_id = p.id
+           AND ts.rank = 1
           LEFT JOIN serving.customer_display_names dn
             ON dn.customer_unique_id = p.customer_unique_id
          WHERE p.customer_unique_id = :cuid

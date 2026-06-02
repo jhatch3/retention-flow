@@ -11,18 +11,13 @@ from __future__ import annotations
 from sqlalchemy import text
 
 from ..db.session import engine
+from ..domain.tiers import risk_tier_short
 
 
 def _tier(risk: float | None, threshold: float | None) -> str:
-    if risk is None:
-        return "low"
-    if risk >= 0.85:
-        return "crit"
-    if risk >= 0.65:
-        return "high"
-    if threshold is not None and risk >= threshold:
-        return "med"
-    return "low"
+    # A NULL threshold now falls back to the shared 0.33 medium cutoff (was
+    # previously skipped here, tiering a 0.50 customer "low" instead of "med").
+    return risk_tier_short(risk, threshold)
 
 
 def recent_emails(limit: int = 20) -> dict:

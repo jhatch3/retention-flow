@@ -23,6 +23,7 @@ One JSON API over three sources:
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Iterator
 
 from fastapi import FastAPI, HTTPException
@@ -60,6 +61,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Only one heavy, DB-mutating job (scoring or a full pipeline run) may run at a
+# time: concurrent runs race on serving.predictions, and the pipeline endpoints
+# each DROP SCHEMA analytics. Non-blocking — a second caller gets 409, not a queue.
+_PIPELINE_LOCK = threading.Lock()
+_BUSY_DETAIL = "A scoring or pipeline run is already in progress."
 
 
 @app.get("/api/health")
@@ -159,7 +167,12 @@ def inbox_customer_route(customer_id: str) -> dict:
 @app.post("/api/score")
 def score() -> dict:
     """Run batch scoring with the champion model; replaces serving.predictions."""
-    return run_batch_scoring()
+    if not _PIPELINE_LOCK.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail=_BUSY_DETAIL)
+    try:
+        return run_batch_scoring()
+    finally:
+        _PIPELINE_LOCK.release()
 
 
 def _sse(events: Iterator[dict]) -> StreamingResponse:
@@ -176,16 +189,35 @@ def _sse(events: Iterator[dict]) -> StreamingResponse:
     )
 
 
+def _single_flight_sse(make_events) -> StreamingResponse:
+    """Stream an SSE generator under the global pipeline lock; 409 if busy.
+
+    The lock is held for the lifetime of the stream and released when the
+    generator is exhausted (or the client disconnects and the generator is
+    closed), so two scoring/pipeline runs can never overlap.
+    """
+    if not _PIPELINE_LOCK.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail=_BUSY_DETAIL)
+
+    def guarded() -> Iterator[dict]:
+        try:
+            yield from make_events()
+        finally:
+            _PIPELINE_LOCK.release()
+
+    return _sse(guarded())
+
+
 @app.get("/api/score/stream")
 def score_stream() -> StreamingResponse:
     """Run batch scoring, streaming a progress event per stage."""
-    return _sse(score_events())
+    return _single_flight_sse(score_events)
 
 
 @app.get("/api/pipeline/rebuild/stream")
 def rebuild_stream() -> StreamingResponse:
     """Drop the analytics schema and re-run dbt build, streaming timed progress."""
-    return _sse(rebuild_events())
+    return _single_flight_sse(rebuild_events)
 
 
 @app.get("/api/pipeline/run/stream")
@@ -202,10 +234,12 @@ def pipeline_run_stream(
     indefinitely.
     """
     n = max(1, min(int(top_n), 500))
-    return _sse(pipeline_events(train=train, emails=emails, email_top_n=n))
+    return _single_flight_sse(
+        lambda: pipeline_events(train=train, emails=emails, email_top_n=n)
+    )
 
 
 @app.get("/api/pipeline/run-quick/stream")
 def pipeline_run_quick_stream() -> StreamingResponse:
     """Back-compat alias — dbt rebuild + scoring, no retrain, no emails."""
-    return _sse(quick_pipeline_events())
+    return _single_flight_sse(quick_pipeline_events)

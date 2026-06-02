@@ -19,6 +19,7 @@ from typing import Any, Iterable
 from sqlalchemy import text
 
 from ..db.session import engine
+from ..domain.tiers import risk_tier_short
 
 
 def _to_list(value: Any) -> list[Any]:
@@ -233,12 +234,7 @@ def judge_grades(limit: int = 50) -> dict:
     for r in rows:
         risk = float(r["churn_probability"]) if r["churn_probability"] is not None else None
         threshold = float(r["threshold"]) if r["threshold"] is not None else None
-        tier = (
-            "crit" if (risk or 0) >= 0.85
-            else "high" if (risk or 0) >= 0.65
-            else "med" if (risk or 0) >= (threshold or 0.33)
-            else "low"
-        )
+        tier = risk_tier_short(risk, threshold)
         grades.append(
             {
                 "grade_id": int(r["grade_id"]),

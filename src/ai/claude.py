@@ -4,6 +4,7 @@ from datetime import datetime
 import anthropic
 from dotenv import load_dotenv
 
+from ai.config import DEFAULT_MODEL
 from ai.prompts.RETENTION_EMAIL_SYSTEM_PROMPT import RETENTION_EMAIL_SYSTEM_PROMPT
 from ai.prompts.test_dataset import test_case_service_failure
 from ai.tools import run_tools
@@ -34,7 +35,7 @@ def add_assistant_message(messages, message):
     messages.append({"role": "assistant", "content": message.content})
 
 
-def chat(messages, system=None, temperature=1.0, stop_sequences=None, tools=None, model="claude-haiku-4-5", output_config=None):
+def chat(messages, system=None, temperature=1.0, stop_sequences=None, tools=None, model=DEFAULT_MODEL, output_config=None):
     params = {
         "model": model,
         "max_tokens": 4096,
@@ -60,7 +61,7 @@ def text_from_message(message):
 
 def run_conversation(
     messages,
-    model="claude-haiku-4-5",
+    model=DEFAULT_MODEL,
     system=None,
     temperature=1.0,
     stop_sequences=None,

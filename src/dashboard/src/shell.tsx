@@ -173,6 +173,7 @@ export function TopBar({
         <div className="flex min-w-0 items-center gap-2">
           <button
             onClick={onToggleSidebar}
+            aria-label="Toggle sidebar"
             className="-ml-1 rounded p-1 text-[var(--muted)] hover:text-[var(--fg)]"
           >
             <Menu size={16} />

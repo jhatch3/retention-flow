@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 
 import anthropic
@@ -29,26 +30,17 @@ from dotenv import load_dotenv
 from sqlalchemy import text
 
 from ai.claude import RETENTION_EMAIL_SYSTEM_BLOCKS
+from ai.config import DEFAULT_MODEL
 from ai.tools import run_tool
 from ai.tools_schema import FORMAT_RESPONSE_OUTPUT_CONFIG, TOOL_SCHEMAS
 from backend.db.session import engine
+from backend.domain.tiers import risk_tier
 
 load_dotenv()
 
-DEFAULT_MODEL = "claude-haiku-4-5"
 DEFAULT_TOP_N = 500
 DEFAULT_CONCURRENCY = 8
 MAX_TOOL_TURNS = 10
-
-# Risk-tier thresholds — must match the system prompt's expectations.
-TIER_THRESHOLDS = ((0.85, "critical"), (0.65, "high"), (0.33, "medium"))
-
-
-def _risk_tier(churn_probability: float) -> str:
-    for cutoff, label in TIER_THRESHOLDS:
-        if churn_probability >= cutoff:
-            return label
-    return "low"
 
 
 # --- DB shaping ---------------------------------------------------------
@@ -133,7 +125,7 @@ def _load_top_n_payloads(top_n: int) -> list[tuple[int, dict]]:
             {
                 "customer_id": r["customer_unique_id"],
                 "churn_probability": round(proba, 4),
-                "risk_tier": _risk_tier(proba),
+                "risk_tier": risk_tier(proba),
                 "shap_factors": shap_factors,
                 "customer_context": ctx,
             },
@@ -248,16 +240,28 @@ async def _gather_emails(
     customer_inputs: list[dict],
     concurrency: int,
     model: str,
+    progress_cb: Callable[[int, int], None] | None = None,
 ) -> list[tuple[dict | None, list[dict], Exception | None]]:
     client = anthropic.AsyncAnthropic()
     semaphore = asyncio.Semaphore(concurrency)
+    total = len(customer_inputs)
+    completed = 0
+    lock = asyncio.Lock()
+
+    async def _tracked(payload: dict):
+        nonlocal completed
+        result = await _generate_one(client, semaphore, payload, model)
+        if progress_cb is not None:
+            async with lock:
+                completed += 1
+                done = completed
+            progress_cb(done, total)
+        return result
+
     try:
-        return await asyncio.gather(
-            *(
-                _generate_one(client, semaphore, payload, model)
-                for payload in customer_inputs
-            )
-        )
+        # gather preserves input order regardless of completion order, so the
+        # returned list still aligns with the caller's prediction ids.
+        return await asyncio.gather(*(_tracked(p) for p in customer_inputs))
     finally:
         await client.close()
 
@@ -266,13 +270,19 @@ def create_batch(
     customer_inputs: list[dict],
     concurrency: int = DEFAULT_CONCURRENCY,
     model: str = DEFAULT_MODEL,
+    progress_cb: Callable[[int, int], None] | None = None,
 ) -> list[tuple[dict | None, list[dict], Exception | None]]:
     """Generate emails for every payload concurrently and return per-customer results.
 
     Each result is ``(email_dict, tool_log, error)``. ``email_dict`` is None on
     failure; ``error`` carries the exception. Bounded by ``concurrency``.
+
+    ``progress_cb(done, total)`` — if given, called once per customer as each
+    generation completes, for live progress reporting.
     """
-    return asyncio.run(_gather_emails(customer_inputs, concurrency, model))
+    return asyncio.run(
+        _gather_emails(customer_inputs, concurrency, model, progress_cb)
+    )
 
 
 # --- High-level pipeline step --------------------------------------------
@@ -281,12 +291,17 @@ def generate_top_n_emails(
     top_n: int = DEFAULT_TOP_N,
     concurrency: int = DEFAULT_CONCURRENCY,
     model: str = DEFAULT_MODEL,
+    progress_cb: Callable[[int, int], None] | None = None,
 ) -> dict:
     """Generate retention emails for the top-N at-risk customers.
 
     Reads top-N from ``serving.predictions`` (by churn probability), generates
     one email per customer in parallel, persists them to
     ``serving.generated_emails``, and returns a summary.
+
+    ``progress_cb(done, total)`` — if given, called once per customer as each
+    email is generated, so callers (the dashboard SSE stream, the Dagster asset)
+    can report live ``n/total`` progress.
     """
     t0 = time.perf_counter()
     payloads = _load_top_n_payloads(top_n)
@@ -300,12 +315,17 @@ def generate_top_n_emails(
         }
 
     prediction_ids, customer_inputs = zip(*payloads)
-    results = create_batch(list(customer_inputs), concurrency=concurrency, model=model)
+    results = create_batch(
+        list(customer_inputs),
+        concurrency=concurrency,
+        model=model,
+        progress_cb=progress_cb,
+    )
 
     rows: list[dict] = []
     failed = 0
     now = datetime.now(timezone.utc)
-    for pid, (email, _tool_log, err) in zip(prediction_ids, results):
+    for pid, (email, tool_log, err) in zip(prediction_ids, results):
         if email is None or err is not None:
             failed += 1
             continue
@@ -315,6 +335,10 @@ def generate_top_n_emails(
             "body": email["body"],
             "model": model,
             "status": "draft",
+            # Persist the generator's tool log so the judge receives the same
+            # payload it gets on the test path — without it, tool-grounded
+            # numbers look like fabrications and get capped at <=5.
+            "tool_calls": json.dumps(tool_log or []),
             "generated_at": now,
         })
 

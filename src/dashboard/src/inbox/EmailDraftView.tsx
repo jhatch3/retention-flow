@@ -47,7 +47,7 @@ export function EmailDraftView({
           </div>
         </div>
         <div className="flex shrink-0 gap-1.5">
-          <Chip tone="info">Judge {ev.judge_score} / 5</Chip>
+          <Chip tone="info">Judge {ev.judge_score.toFixed(1)} / 10</Chip>
         </div>
       </div>
 
@@ -79,7 +79,7 @@ export function EmailDraftView({
         <button
           type="button"
           onClick={() =>
-            setHint("Would re-call claude-opus-4-5 — regenerate is wired in v1.1.")
+            setHint("Would re-draft via the configured model — regenerate ships in a later release.")
           }
           className="rounded-md border border-[var(--line)] bg-[var(--surface)] px-3 py-2.5 text-[13px] font-medium text-[var(--fg)] transition hover:border-[var(--fg-mute)]"
         >

@@ -22,21 +22,22 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
 import anthropic
-import pandas as pd
 from dotenv import load_dotenv
 from sqlalchemy import text
 
+from ai.config import DEFAULT_MODEL
 from ai.grader import GRADER_SYSTEM_BLOCKS
 from ai.tools_schema import GRADER_OUTPUT_CONFIG
 from backend.db.session import engine
+from backend.domain.tiers import risk_tier
 
 load_dotenv()
 
-DEFAULT_MODEL = "claude-haiku-4-5"
 DEFAULT_CONCURRENCY = 6
 DEFAULT_LIMIT = 200
 PASS_THRESHOLD = 7.0
@@ -159,6 +160,7 @@ def _load_unjudged_emails(limit: int) -> list[dict]:
                e.subject,
                e.body,
                e.model         AS generator_model,
+               e.tool_calls,
                e.generated_at,
                p.id            AS prediction_id,
                p.customer_unique_id,
@@ -215,12 +217,7 @@ def _load_unjudged_emails(limit: int) -> list[dict]:
     out: list[dict] = []
     for r in rows:
         churn = float(r["churn_probability"])
-        risk_tier = (
-            "critical" if churn >= 0.85
-            else "high" if churn >= 0.65
-            else "medium" if churn >= float(r["threshold"] or 0.33)
-            else "low"
-        )
+        tier = risk_tier(churn, r["threshold"])
         context_fields = {
             "frequency": r["frequency"],
             "recency_days": r["recency_days"],
@@ -239,7 +236,7 @@ def _load_unjudged_emails(limit: int) -> list[dict]:
         customer_input = {
             "customer_id": r["customer_unique_id"],
             "churn_probability": round(churn, 4),
-            "risk_tier": risk_tier,
+            "risk_tier": tier,
             "shap_factors": (by_pid.get(r["prediction_id"]) or [])[:5],
             "customer_context": context,
         }
@@ -252,9 +249,26 @@ def _load_unjudged_emails(limit: int) -> list[dict]:
                     "body": r["body"] or "",
                     "model": r["generator_model"],
                 },
+                "tool_calls": _coerce_tool_calls(r["tool_calls"]),
             }
         )
     return out
+
+
+def _coerce_tool_calls(raw: Any) -> list[dict]:
+    """Normalise the persisted tool log to a list of dicts.
+
+    psycopg2 returns JSONB already parsed, but be defensive about a raw JSON
+    string or NULL (older rows persisted before the tool_calls column existed).
+    """
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (ValueError, TypeError):
+            return []
+    return raw if isinstance(raw, list) else []
 
 
 def _payload(email_row: dict) -> dict:
@@ -263,7 +277,7 @@ def _payload(email_row: dict) -> dict:
         "success_criteria": derive_success_criteria(email_row["customer_input"]),
         "customer_input": email_row["customer_input"],
         "generated_email": email_row["generated_email"],
-        "tool_calls": [],
+        "tool_calls": email_row.get("tool_calls") or [],
     }
 
 
@@ -300,29 +314,69 @@ async def _grade_one(
 
 
 async def _gather_grades(
-    rows: list[dict], concurrency: int, model: str
+    rows: list[dict],
+    concurrency: int,
+    model: str,
+    progress_cb: Callable[[int, int], None] | None = None,
 ) -> list[tuple[dict, dict | None, Exception | None]]:
     client = anthropic.AsyncAnthropic()
     semaphore = asyncio.Semaphore(concurrency)
+    total = len(rows)
+    completed = 0
+    lock = asyncio.Lock()
+
+    async def _tracked(row: dict):
+        nonlocal completed
+        result = await _grade_one(client, semaphore, row, model)
+        if progress_cb is not None:
+            async with lock:
+                completed += 1
+                done = completed
+            progress_cb(done, total)
+        return result
+
     try:
-        return await asyncio.gather(
-            *(_grade_one(client, semaphore, r, model) for r in rows)
-        )
+        return await asyncio.gather(*(_tracked(r) for r in rows))
     finally:
         await client.close()
 
 
+_UPSERT_EVAL = text(
+    """
+    INSERT INTO serving.eval_scores
+        (email_id, evaluator, overall_score, passed, judge_model, latency_ms,
+         certainty, reasoning, weaknesses, clauses_evaluated, created_at, updated_at)
+    VALUES
+        (:email_id, CAST(:evaluator AS serving.evaluator), :overall_score, :passed,
+         :judge_model, :latency_ms, :certainty, :reasoning,
+         CAST(:weaknesses AS jsonb), CAST(:clauses_evaluated AS jsonb),
+         :created_at, :updated_at)
+    ON CONFLICT (email_id, evaluator) DO UPDATE SET
+        overall_score     = EXCLUDED.overall_score,
+        passed            = EXCLUDED.passed,
+        judge_model       = EXCLUDED.judge_model,
+        latency_ms        = EXCLUDED.latency_ms,
+        certainty         = EXCLUDED.certainty,
+        reasoning         = EXCLUDED.reasoning,
+        weaknesses        = EXCLUDED.weaknesses,
+        clauses_evaluated = EXCLUDED.clauses_evaluated,
+        updated_at        = EXCLUDED.updated_at
+    """
+)
+
+
 def _persist(rows: list[dict]) -> int:
-    """Write the structured grades to ``serving.eval_scores``."""
+    """Upsert the structured grades into ``serving.eval_scores``.
+
+    Uses INSERT ... ON CONFLICT (email_id, evaluator) so re-grading an email
+    updates its row in place. The old pandas ``to_sql(append)`` path would
+    violate the (email_id, evaluator) unique constraint on any re-grade and
+    fail the entire batch atomically.
+    """
     if not rows:
         return 0
-    pd.DataFrame(rows).to_sql(
-        "eval_scores",
-        engine,
-        schema="serving",
-        if_exists="append",
-        index=False,
-    )
+    with engine.begin() as conn:
+        conn.execute(_UPSERT_EVAL, rows)
     return len(rows)
 
 
@@ -330,8 +384,13 @@ def grade_unjudged_emails(
     limit: int = DEFAULT_LIMIT,
     concurrency: int = DEFAULT_CONCURRENCY,
     model: str = DEFAULT_MODEL,
+    progress_cb: Callable[[int, int], None] | None = None,
 ) -> dict:
-    """Grade up to ``limit`` recent generated emails that don't yet have a grade."""
+    """Grade up to ``limit`` recent generated emails that don't yet have a grade.
+
+    ``progress_cb(done, total)`` — if given, called once per email as each grade
+    completes, for live ``n/total`` progress reporting.
+    """
     t0 = time.perf_counter()
     rows = _load_unjudged_emails(limit)
     if not rows:
@@ -343,7 +402,7 @@ def grade_unjudged_emails(
             "model": model,
         }
 
-    results = asyncio.run(_gather_grades(rows, concurrency, model))
+    results = asyncio.run(_gather_grades(rows, concurrency, model, progress_cb))
 
     persist_rows: list[dict] = []
     failed = 0

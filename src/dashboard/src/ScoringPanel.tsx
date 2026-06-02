@@ -28,18 +28,29 @@ export function ScoringPanel({
   const [progress, setProgress] = useState(0);
   const [log, setLog] = useState<ScoreEvent[]>([]);
   const logRef = useRef<HTMLDivElement>(null);
+  const esRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [log]);
+
+  // Close any open stream when the panel unmounts (navigating away mid-run)
+  // so the connection and its setState calls don't leak.
+  useEffect(() => () => esRef.current?.close(), []);
 
   function run() {
     setRunning(true);
     setProgress(0);
     setLog([]);
     const es = new EventSource("/api/score/stream");
+    esRef.current = es;
     es.onmessage = (e) => {
-      const evt: ScoreEvent = JSON.parse(e.data);
+      let evt: ScoreEvent;
+      try {
+        evt = JSON.parse(e.data);
+      } catch {
+        return; // ignore a malformed frame rather than throwing in the handler
+      }
       setLog((l) => [...l, evt]);
       setProgress(evt.progress);
       if (evt.done) {

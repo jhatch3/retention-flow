@@ -14,18 +14,19 @@ export function EvalCard({ ev }: { ev: InboxEval }) {
               Claude judge
             </span>
             <span className="font-mono text-[var(--muted)]">
-              {(ev.judge_ms / 1000).toFixed(1)}s
+              {ev.judge_ms ? `${(ev.judge_ms / 1000).toFixed(1)}s` : "—"}
             </span>
           </div>
           <div className="mt-1 flex items-center gap-2">
-            <div className="h-1.5 flex-1 rounded-full bg-[var(--line-soft)]">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--line-soft)]">
               <div
                 className="h-full rounded-full bg-[var(--ok)]"
-                style={{ width: `${(ev.judge_score / 5) * 100}%` }}
+                style={{ width: `${Math.min(100, (ev.judge_score / 10) * 100)}%` }}
               />
             </div>
             <span className="font-mono text-[12px] font-semibold tabular-nums text-[var(--fg)]">
               {ev.judge_score.toFixed(1)}
+              <span className="ml-0.5 font-normal text-[var(--muted)]">/ 10</span>
             </span>
           </div>
         </div>
@@ -40,6 +41,12 @@ export function EvalCard({ ev }: { ev: InboxEval }) {
             </span>
           )}
         </div>
+        {ev.reasoning ? (
+          <p className="border-t border-[var(--line-soft)] pt-2 text-[11.5px] leading-[1.5] text-[var(--fg-soft)]">
+            <span className="font-medium text-[var(--muted)]">Why: </span>
+            {ev.reasoning}
+          </p>
+        ) : null}
       </div>
     </section>
   );

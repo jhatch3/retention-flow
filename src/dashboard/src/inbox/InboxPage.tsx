@@ -90,7 +90,7 @@ export function InboxPage() {
             ✓ Nobody's at risk right now
           </div>
           <p className="mt-1.5 text-[12.5px] text-[var(--fg-mute)]">
-            Next score run: tonight at 02:00 BRT.
+            The next nightly score run will refresh this queue.
           </p>
         </div>
       </div>

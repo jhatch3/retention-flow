@@ -1,11 +1,24 @@
 """Tests for backend.api.inbox — the Triage Inbox queue + detail services.
 
-These cover the v1 fixture-backed contract (HANDOFF-triage-inbox.md §4): the
-queue projection, tier bucketing, totals, filtering, and per-customer detail.
-No database or model is needed — inbox.py reads static fixtures.
+inbox.py is now backed by the live warehouse (serving.predictions + analytics),
+not static fixtures, so these are integration tests: they read real IDs from
+the queue and assert the projection shape, tier bucketing, totals, filtering,
+and the per-customer detail / eval contract. They skip cleanly when the DB has
+no scored customers yet.
 """
 
+import pytest
+
+from ai.judge_batch import PASS_THRESHOLD
 from backend.api import inbox
+
+
+def _queue(**kw):
+    """The live queue, or skip if nothing has been scored."""
+    customers = inbox.inbox_customers(**kw)["customers"]
+    if not customers:
+        pytest.skip("no scored customers in the warehouse")
+    return customers
 
 _SUMMARY_KEYS = {
     "customer_unique_id", "display_name", "city", "ltv_brl", "risk", "tier",
@@ -21,23 +34,26 @@ _DETAIL_KEYS = {
 # --- tier bucketing ------------------------------------------------------
 
 def test_tier_buckets_by_risk():
-    assert inbox.tier(0.92) == "crit"
-    assert inbox.tier(0.85) == "crit"
-    assert inbox.tier(0.70) == "high"
-    assert inbox.tier(0.50) == "med"
-    assert inbox.tier(inbox.THRESHOLD) == "med"
-    assert inbox.tier(0.10) == "low"
+    # _tier(risk, threshold) is the pure projection of the canonical risk-tier
+    # cutoffs into the dashboard's short codes (no DB needed).
+    assert inbox._tier(0.92, 0.33) == "crit"
+    assert inbox._tier(0.85, 0.33) == "crit"
+    assert inbox._tier(0.70, 0.33) == "high"
+    assert inbox._tier(0.50, 0.33) == "med"
+    assert inbox._tier(0.33, 0.33) == "med"
+    assert inbox._tier(0.10, 0.33) == "low"
 
 
 # --- queue ---------------------------------------------------------------
 
 def test_inbox_customers_envelope():
+    _queue()  # skip if unscored
     out = inbox.inbox_customers()
     assert set(out) == {
         "customers", "totals", "scored_at", "model_version", "threshold"
     }
-    assert out["threshold"] == inbox.THRESHOLD
-    assert out["model_version"] == inbox.MODEL_VERSION
+    assert isinstance(out["threshold"], float)
+    assert isinstance(out["model_version"], str)
 
 
 def test_queue_is_sorted_by_risk_descending():
@@ -90,19 +106,25 @@ def test_inbox_customer_returns_full_detail():
 
 
 def test_detail_drivers_sorted_by_absolute_contribution():
-    detail = inbox.inbox_customer("a1b2c3d4e5f6a7b8")
+    cid = _queue()[0]["customer_unique_id"]
+    detail = inbox.inbox_customer(cid)
     assert detail is not None
     mags = [abs(d["contrib"]) for d in detail["drivers"]]
     assert mags == sorted(mags, reverse=True)
 
 
 def test_eval_pass_is_derived_from_judge_score():
-    # Camila: judge 4.5, threshold 4.0 -> passes.
-    passing = inbox.inbox_customer("a1b2c3d4e5f6a7b8")["eval"]
-    assert passing["passed"] is True
-    # Thiago: judge 3.6 is below the 4.0 bar -> fails.
-    failing = inbox.inbox_customer("f6a7b8c9d0e1f2a3")["eval"]
-    assert failing["passed"] is False
+    # Contract: the bar is the canonical PASS_THRESHOLD (7.0 on the 1-10 scale),
+    # and ``passed`` is true iff judge_score >= that bar.
+    graded = 0
+    for c in _queue(limit=25):
+        ev = inbox.inbox_customer(c["customer_unique_id"])["eval"]
+        assert ev["pass_threshold"] == PASS_THRESHOLD
+        if ev["judge_score"] > 0:  # a real grade, not the empty default
+            graded += 1
+            assert ev["passed"] == (ev["judge_score"] >= PASS_THRESHOLD)
+    if graded == 0:
+        pytest.skip("no graded emails among the sampled customers")
 
 
 def test_inbox_customer_unknown_id_returns_none():

@@ -57,14 +57,19 @@ export function featureCategory(name: string): string {
   return "recency";
 }
 
+/** Escape one field per RFC 4180: quote when it contains a comma, quote, or
+ *  newline, and double any embedded quotes. */
+function csvField(value: unknown): string {
+  const s = String(value ?? "");
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
 /** Trigger a client-side CSV download from an array of flat objects. */
 export function downloadCsv(filename: string, rows: Record<string, unknown>[]): void {
   if (!rows.length) return;
   const headers = Object.keys(rows[0]);
-  const body = rows.map((r) =>
-    headers.map((h) => String(r[h] ?? "")).join(","),
-  );
-  const csv = [headers.join(","), ...body].join("\n");
+  const body = rows.map((r) => headers.map((h) => csvField(r[h])).join(","));
+  const csv = [headers.map(csvField).join(","), ...body].join("\r\n");
   const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
   const a = document.createElement("a");
   a.href = url;

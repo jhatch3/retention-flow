@@ -52,6 +52,7 @@ export function RunReport({
           <button
             onClick={onClose}
             className="ml-auto rounded p-1 text-[var(--muted)] hover:text-[var(--fg)]"
+            aria-label="Close report"
           >
             <X size={15} />
           </button>
@@ -61,7 +62,7 @@ export function RunReport({
           {dbt && (
             <Row
               label="dbt rebuild"
-              headline={`${dbt.gold_rows.toLocaleString()} gold rows · 8 models, 18 tests`}
+              headline={`${dbt.gold_rows.toLocaleString()} gold rows`}
               detail={`${dbt.seconds}s`}
             />
           )}

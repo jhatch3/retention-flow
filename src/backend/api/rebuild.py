@@ -10,10 +10,12 @@ event stream.
 from __future__ import annotations
 
 import os
+import queue
 import re
 import subprocess
+import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,6 +31,59 @@ _NODE = re.compile(r"(\d+) of (\d+)")
 _KEEP = (" OK ", " PASS ", " ERROR", " FAIL", "Completed successfully", "Done.")
 
 DEFAULT_EMAIL_TOP_N = 50
+
+
+def _phase_progress(
+    run_fn: Callable[[Callable[[int, int], None]], dict],
+    *,
+    ev: Callable[..., dict],
+    stage: str,
+    floor: float,
+    alloc: float,
+    verb: str,
+) -> Iterator[dict]:
+    """Stream live ``n/total`` progress for a blocking batch step.
+
+    ``run_fn`` is a callable that accepts a ``progress_cb(done, total)`` and
+    returns a summary dict (e.g. ``generate_top_n_emails``). It runs in a worker
+    thread; each ``progress_cb`` call is turned into an SSE event scaled into the
+    phase's ``[floor, floor + alloc]`` slice of the overall progress bar.
+
+    Yields events; the wrapped function's summary is the generator's return
+    value — use ``summary = yield from _phase_progress(...)``.
+    """
+    q: queue.Queue = queue.Queue()
+    box: dict = {}
+
+    def cb(done: int, total: int) -> None:
+        q.put((done, total))
+
+    def worker() -> None:
+        try:
+            box["value"] = run_fn(cb)
+        except Exception as exc:  # re-raised below, after the queue has drained
+            box["error"] = exc
+        finally:
+            q.put(None)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    while True:
+        item = q.get()
+        if item is None:
+            break
+        done, total = item
+        frac = (done / total) if total else 1.0
+        yield ev(
+            stage,
+            f"{verb} {done}/{total}…",
+            floor + alloc * (0.1 + 0.85 * frac),
+            phase=stage,
+        )
+
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
 
 
 def rebuild_events() -> Iterator[dict]:
@@ -215,11 +270,18 @@ def pipeline_events(
         yield ev(
             "emails",
             f"Generating retention emails for the top {email_top_n} at-risk customers…",
-            progress_floor + emails_alloc * 0.1,
+            progress_floor + emails_alloc * 0.05,
             phase="emails",
         )
         try:
-            summary = generate_top_n_emails(top_n=email_top_n)
+            summary = yield from _phase_progress(
+                lambda cb: generate_top_n_emails(top_n=email_top_n, progress_cb=cb),
+                ev=ev,
+                stage="emails",
+                floor=progress_floor,
+                alloc=emails_alloc,
+                verb="Drafted",
+            )
         except Exception as exc:
             yield ev(
                 "error",
@@ -250,12 +312,18 @@ def pipeline_events(
         yield ev(
             "judge",
             "Judging generated emails with the adversarial rubric…",
-            progress_floor + judge_alloc * 0.1,
+            progress_floor + judge_alloc * 0.05,
             phase="judge",
         )
         try:
-            judge_summary = grade_unjudged_emails(
-                limit=max(email_top_n, summary.get("generated", 0) or email_top_n)
+            judge_limit = max(email_top_n, summary.get("generated", 0) or email_top_n)
+            judge_summary = yield from _phase_progress(
+                lambda cb: grade_unjudged_emails(limit=judge_limit, progress_cb=cb),
+                ev=ev,
+                stage="judge",
+                floor=progress_floor,
+                alloc=judge_alloc,
+                verb="Judged",
             )
         except Exception as exc:
             yield ev(

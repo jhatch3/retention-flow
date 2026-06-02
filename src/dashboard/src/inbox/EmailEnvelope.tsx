@@ -23,7 +23,7 @@ export function EmailEnvelope({
     >
       <div className="grid grid-cols-[60px_1fr] gap-y-1.5 border-b border-[var(--line-soft)] px-4 py-3 text-[12.5px]">
         <span className="text-[var(--muted)]">To</span>
-        <span className="text-[var(--fg-soft)]">
+        <span className="break-words text-[var(--fg-soft)]">
           {email.to}
           <span className="ml-1.5 text-[var(--muted)]">· verified · opted-in</span>
         </span>
@@ -33,13 +33,16 @@ export function EmailEnvelope({
           <Chip tone="mono">persona: {email.persona}</Chip>
         </span>
         <span className="text-[var(--muted)]">Subject</span>
-        <span className="font-semibold text-[var(--fg)]">{email.subject}</span>
+        <span className="break-words font-semibold text-[var(--fg)]">{email.subject}</span>
       </div>
 
       <div
-        className="min-h-[220px] whitespace-pre-wrap px-5 py-4 font-serif text-[13.5px] leading-[1.65] text-[var(--fg-soft)] focus:outline-none"
+        className="min-h-[220px] whitespace-pre-wrap break-words px-5 py-4 font-serif text-[13.5px] leading-[1.65] text-[var(--fg-soft)] focus:outline-none"
         contentEditable={edit}
         suppressContentEditableWarning
+        role="textbox"
+        aria-multiline="true"
+        aria-label="Email body — editable"
       >
         {email.body}
       </div>
@@ -47,9 +50,12 @@ export function EmailEnvelope({
       <div className="flex items-center gap-1.5 border-t border-[var(--line-soft)] bg-[var(--surface-mute)] px-4 py-2.5 text-[11.5px] text-[var(--muted)]">
         <ShieldCheck size={13} />
         <span>Every claim references real account data —</span>
-        <a href="#" className="font-medium text-[var(--accent)]">
+        <button
+          type="button"
+          className="font-medium text-[var(--accent)] hover:underline"
+        >
           grounding trace →
-        </a>
+        </button>
       </div>
     </article>
   );

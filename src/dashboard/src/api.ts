@@ -243,6 +243,7 @@ export interface InboxEval {
   judge_ms: number;
   pass_threshold: number;
   passed: boolean;
+  reasoning: string;
 }
 
 export interface InboxPlay {

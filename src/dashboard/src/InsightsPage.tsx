@@ -117,7 +117,7 @@ export function InsightsPage() {
             />
             <TopClauses
               title="Partially-met clauses"
-              subtitle="Judge marked these as 'partially_met'"
+              subtitle="Judge marked these as partially met"
               items={insights.top_clauses_partial ?? []}
               tone="warn"
             />
@@ -221,7 +221,7 @@ function KpiStrip({ insights }: { insights: JudgeInsightsT }) {
       </Card>
       <Card pad>
         <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--muted)]">
-          Pass rate ( ≥ 7 )
+          Pass rate (≥ 7)
         </div>
         <div className="mt-2 text-[28px] font-semibold leading-none tracking-tight tabular-nums text-[var(--fg)]">
           {passRate.toFixed(0)}%
@@ -320,7 +320,7 @@ function ClauseVerdicts({ insights }: { insights: JudgeInsightsT }) {
   return (
     <Card
       title="Clause verdicts"
-      subtitle="How every success-criteria clause was rated"
+      subtitle="How every success criterion was rated"
     >
       <div className="mb-4 flex h-3 w-full overflow-hidden rounded-full border border-[var(--line)] bg-[var(--surface-soft)]">
         {rows.map((k) => {

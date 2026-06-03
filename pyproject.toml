@@ -20,10 +20,20 @@ dependencies = [
     "matplotlib>=3.8",
     "fastapi>=0.110",
     "uvicorn>=0.30",
+    # LLM — retention-email generator + LLM-as-judge
+    "anthropic>=0.40",
+    "python-dotenv>=1.0",
 ]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
 
 [tool.setuptools]
 package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

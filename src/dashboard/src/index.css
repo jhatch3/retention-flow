@@ -2,30 +2,45 @@
 
 @layer base {
   :root {
-    /* Surface */
-    --bg:             oklch(0.155 0.008 270);
-    --surface:        oklch(0.185 0.008 270);
-    --surface-deep:   oklch(0.135 0.008 270);
-    --surface-strong: oklch(0.22  0.008 270);
+    /* Surfaces — warm cream paper */
+    --bg:             #f0eee9;
+    --surface:        #ffffff;
+    --surface-soft:   #fbf9f4;
+    --surface-mute:   #f5f1e8;
+    --surface-deep:   #ebe6db;
+    --surface-strong: #ffffff;
 
     /* Lines */
-    --line:           oklch(0.27  0.008 270 / 0.85);
-    --line-strong:    oklch(0.34  0.008 270);
+    --line:           #e6e1d8;
+    --line-soft:      #efeae0;
+    --line-strong:    #d4cdbe;
 
     /* Type */
-    --fg:             oklch(0.97  0.005 270);
-    --fg-soft:        oklch(0.78  0.008 270);
-    --muted:          oklch(0.55  0.008 270);
+    --fg:             #1c1a17;
+    --fg-soft:        #3a342d;
+    --fg-mute:        #6b6358;
+    --muted:          #8a8074;
 
     /* Accents */
-    --accent:         oklch(0.72  0.18  285);
-    --accent-hov:     oklch(0.76  0.18  285);
-    --accent-fg:      oklch(0.92  0.05  285);
-    --accent-2:       oklch(0.72  0.14  220);
-    --on-accent:      oklch(0.13  0.02  285);
+    --accent:         #c44a2d;
+    --accent-hov:     #b03d24;
+    --accent-fg:      #8e3520;
+    --accent-2:       #4f6f8a;
+    --on-accent:      #ffffff;
 
-    --font-sans: "Inter Tight", ui-sans-serif, system-ui, sans-serif;
-    --font-mono: "JetBrains Mono", ui-monospace, monospace;
+    /* Semantic */
+    --risk:           #c44a2d;
+    --risk-bg:        #f7e3da;
+    --warn:           #b07a1f;
+    --warn-bg:        #f4e8cf;
+    --ok:             #3d7a4e;
+    --ok-bg:          #dee9d8;
+    --info:           #2c5f7c;
+    --info-bg:        #e1ebf2;
+
+    --font-sans:  "Inter Tight", ui-sans-serif, system-ui, sans-serif;
+    --font-mono:  "JetBrains Mono", ui-monospace, monospace;
+    --font-serif: Georgia, "Iowan Old Style", Charter, serif;
   }
 
   html, body { background: var(--bg); color: var(--fg); }
@@ -40,17 +55,17 @@
     content: "";
     position: fixed; inset: 0;
     background:
-      radial-gradient(900px 500px at 18% -10%, color-mix(in oklch, var(--accent) 14%, transparent), transparent 60%),
-      radial-gradient(700px 400px at 100% 0%, color-mix(in oklch, var(--accent-2) 8%, transparent), transparent 55%);
+      radial-gradient(900px 500px at 18% -10%, color-mix(in oklch, var(--accent) 8%, transparent), transparent 60%),
+      radial-gradient(700px 400px at 100% 0%, color-mix(in oklch, var(--accent-2) 6%, transparent), transparent 55%);
     pointer-events: none; z-index: 0;
   }
   #root { position: relative; z-index: 1; }
 
-  ::selection { background: color-mix(in oklch, var(--accent) 35%, transparent); color: var(--fg); }
+  ::selection { background: color-mix(in oklch, var(--accent) 28%, transparent); color: var(--fg); }
 
   *::-webkit-scrollbar { width: 8px; height: 8px; }
-  *::-webkit-scrollbar-thumb { background: oklch(0.32 0.008 270); border-radius: 4px; }
-  *::-webkit-scrollbar-thumb:hover { background: oklch(0.4 0.008 270); }
+  *::-webkit-scrollbar-thumb { background: #d8d2c6; border-radius: 4px; }
+  *::-webkit-scrollbar-thumb:hover { background: #c4bdae; }
 
   /* Recharts axis text */
   .recharts-text { fill: var(--muted); }
@@ -148,4 +163,3 @@
 .wh-backdrop-out {
   animation: wh-backdrop-out 0.16s ease-in forwards;
 }
-

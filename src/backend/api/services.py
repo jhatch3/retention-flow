@@ -7,12 +7,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import mlflow
-import mlflow.xgboost
 from mlflow.tracking import MlflowClient
 from sqlalchemy import bindparam, text
 
 from ..db.session import engine
-from ..ml.data import FEATURE_COLUMNS
 from ..ml.train import CHAMPION_ALIAS, EXPERIMENT, MLFLOW_URI, REGISTERED_MODEL
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -240,20 +238,4 @@ def model_registry() -> dict:
         "champion_version": champion_version,
         "champion_metrics": champion_metrics,
         "versions": versions,
-    }
-
-
-def feature_importance() -> dict:
-    """Champion model feature importances, sorted high to low."""
-    mlflow.set_tracking_uri(MLFLOW_URI)
-    model = mlflow.xgboost.load_model(f"models:/{REGISTERED_MODEL}@{CHAMPION_ALIAS}")
-    pairs = sorted(
-        zip(FEATURE_COLUMNS, model.feature_importances_),
-        key=lambda p: p[1],
-        reverse=True,
-    )
-    return {
-        "features": [
-            {"feature": f, "importance": round(float(v), 4)} for f, v in pairs
-        ]
     }

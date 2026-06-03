@@ -8,26 +8,35 @@ One JSON API over three sources:
 - GET  /api/warehouse/tables    every table + view in the warehouse schemas
 - GET  /api/warehouse/sample    first N rows of one table or view
 - GET  /api/models              MLflow registered churn-model versions
-- GET  /api/feature-importance  champion model feature importances
 - GET  /api/predictions         summary of the latest batch scoring
 - GET  /api/shap                global SHAP summary + per-customer breakdowns
 - GET  /api/runs                recent rebuild + scoring runs
+- GET  /api/inbox/customers          at-risk customer queue (Triage Inbox)
+- GET  /api/inbox/customers/{id}     one customer's triage detail
 - POST /api/score               run batch scoring (one-shot)
 - GET  /api/score/stream        run batch scoring, streaming progress (SSE)
 - GET  /api/pipeline/rebuild/stream  drop analytics + dbt build, timed (SSE)
-- GET  /api/pipeline/run/stream      full pipeline: dbt + train + score (SSE)
+- GET  /api/pipeline/run/stream      dbt + (train) + score + (emails) (SSE)
+- GET  /api/pipeline/run-quick/stream back-compat alias for train=0&emails=0
 """
 
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Iterator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from .rebuild import full_pipeline_events, rebuild_events
+from .inbox import inbox_customer, inbox_customers
+from .rebuild import (
+    full_pipeline_events,
+    pipeline_events,
+    quick_pipeline_events,
+    rebuild_events,
+)
 from .runs import recent_runs
 from .scoring import (
     predictions_overview,
@@ -37,7 +46,6 @@ from .scoring import (
 )
 from .services import (
     dbt_status,
-    feature_importance,
     model_registry,
     warehouse_overview,
     warehouse_sample,
@@ -53,6 +61,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Only one heavy, DB-mutating job (scoring or a full pipeline run) may run at a
+# time: concurrent runs race on serving.predictions, and the pipeline endpoints
+# each DROP SCHEMA analytics. Non-blocking — a second caller gets 409, not a queue.
+_PIPELINE_LOCK = threading.Lock()
+_BUSY_DETAIL = "A scoring or pipeline run is already in progress."
 
 
 @app.get("/api/health")
@@ -90,12 +105,6 @@ def models() -> dict:
     return model_registry()
 
 
-@app.get("/api/feature-importance")
-def importance() -> dict:
-    """Champion model feature importances."""
-    return feature_importance()
-
-
 @app.get("/api/predictions")
 def predictions() -> dict:
     """Summary of the predictions currently in serving.predictions."""
@@ -108,16 +117,62 @@ def shap() -> dict:
     return shap_overview()
 
 
+@app.get("/api/emails")
+def emails(limit: int = 20) -> dict:
+    """Recent retention emails from serving.generated_emails (most recent first)."""
+    from .emails import recent_emails
+
+    return recent_emails(limit=limit)
+
+
+@app.get("/api/eval/insights")
+def eval_insights() -> dict:
+    """Aggregate the LLM-as-judge grades across all currently-scored emails."""
+    from .insights import judge_insights
+
+    return judge_insights()
+
+
+@app.get("/api/eval/grades")
+def eval_grades(limit: int = 50) -> dict:
+    """Per-email judge output (reasoning, weaknesses, clauses, score)."""
+    from .insights import judge_grades
+
+    return judge_grades(limit=limit)
+
+
 @app.get("/api/runs")
 def runs() -> dict:
     """Recent pipeline rebuilds and scoring runs."""
     return recent_runs()
 
 
+@app.get("/api/inbox/customers")
+def inbox_customers_route(
+    filter: str = "all", limit: int = 100, offset: int = 0
+) -> dict:
+    """At-risk customer queue — summaries sorted by risk, with tier totals."""
+    return inbox_customers(risk_filter=filter, limit=limit, offset=offset)
+
+
+@app.get("/api/inbox/customers/{customer_id}")
+def inbox_customer_route(customer_id: str) -> dict:
+    """Centre + right-pane triage detail for one at-risk customer."""
+    detail = inbox_customer(customer_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"unknown customer: {customer_id}")
+    return detail
+
+
 @app.post("/api/score")
 def score() -> dict:
     """Run batch scoring with the champion model; replaces serving.predictions."""
-    return run_batch_scoring()
+    if not _PIPELINE_LOCK.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail=_BUSY_DETAIL)
+    try:
+        return run_batch_scoring()
+    finally:
+        _PIPELINE_LOCK.release()
 
 
 def _sse(events: Iterator[dict]) -> StreamingResponse:
@@ -134,19 +189,57 @@ def _sse(events: Iterator[dict]) -> StreamingResponse:
     )
 
 
+def _single_flight_sse(make_events) -> StreamingResponse:
+    """Stream an SSE generator under the global pipeline lock; 409 if busy.
+
+    The lock is held for the lifetime of the stream and released when the
+    generator is exhausted (or the client disconnects and the generator is
+    closed), so two scoring/pipeline runs can never overlap.
+    """
+    if not _PIPELINE_LOCK.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail=_BUSY_DETAIL)
+
+    def guarded() -> Iterator[dict]:
+        try:
+            yield from make_events()
+        finally:
+            _PIPELINE_LOCK.release()
+
+    return _sse(guarded())
+
+
 @app.get("/api/score/stream")
 def score_stream() -> StreamingResponse:
     """Run batch scoring, streaming a progress event per stage."""
-    return _sse(score_events())
+    return _single_flight_sse(score_events)
 
 
 @app.get("/api/pipeline/rebuild/stream")
 def rebuild_stream() -> StreamingResponse:
     """Drop the analytics schema and re-run dbt build, streaming timed progress."""
-    return _sse(rebuild_events())
+    return _single_flight_sse(rebuild_events)
 
 
 @app.get("/api/pipeline/run/stream")
-def pipeline_run_stream() -> StreamingResponse:
-    """Run the full pipeline — dbt rebuild, training, scoring — streaming progress."""
-    return _sse(full_pipeline_events())
+def pipeline_run_stream(
+    train: bool = True,
+    emails: bool = True,
+    top_n: int = 50,
+) -> StreamingResponse:
+    """Run the pipeline with optional training and email generation, streaming
+    progress events. Phases: dbt rebuild → (train) → score → (emails).
+
+    ``top_n`` controls how many at-risk customers get a drafted email when
+    ``emails=true``. Clamped to [1, 500] so a single request can't fan out
+    indefinitely.
+    """
+    n = max(1, min(int(top_n), 500))
+    return _single_flight_sse(
+        lambda: pipeline_events(train=train, emails=emails, email_top_n=n)
+    )
+
+
+@app.get("/api/pipeline/run-quick/stream")
+def pipeline_run_quick_stream() -> StreamingResponse:
+    """Back-compat alias — dbt rebuild + scoring, no retrain, no emails."""
+    return _single_flight_sse(quick_pipeline_events)

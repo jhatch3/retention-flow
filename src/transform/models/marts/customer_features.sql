@@ -11,6 +11,10 @@
   validation split (70 / 15 / 15).
 */
 
+{{ config(
+    post_hook="create index if not exists ix_customer_features_cuid_snapshot on {{ this }} (customer_unique_id, snapshot_date)"
+) }}
+
 {% set snapshot_date = var('snapshot_date') %}
 {% set horizon_days = var('horizon_days') %}
 

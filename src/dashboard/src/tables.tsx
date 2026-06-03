@@ -1,15 +1,32 @@
 // At-risk customer table (with per-customer SHAP) + recent runs.
-import { Fragment, useState } from "react";
-import { Bell, ChevronRight, Clock, Download, ExternalLink, Mail } from "lucide-react";
-import type { Predictions, RunRecord, ShapContribution, ShapCustomer } from "./api";
+import { Fragment, useEffect, useState } from "react";
+import {
+  Activity,
+  Bell,
+  ChevronRight,
+  Clock,
+  Download,
+  ExternalLink,
+  GitBranch,
+  Mail,
+  Play,
+  Zap,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { api } from "./api";
+import type {
+  GeneratedEmail,
+  Predictions,
+  RunRecord,
+  ShapContribution,
+  ShapCustomer,
+} from "./api";
 import { Button, Card, Pill, Skeleton } from "./ui";
 import { cx, downloadCsv, openExternal } from "./lib";
 
-const SEGMENTS = ["all", "high-value", "mid-value", "low-value", "single-order"];
-
 function riskColor(p: number): string {
-  if (p >= 0.95) return "oklch(0.65 0.22 25)";
-  if (p >= 0.9) return "oklch(0.78 0.14 60)";
+  if (p >= 0.95) return "var(--risk)";
+  if (p >= 0.9) return "var(--warn)";
   return "var(--accent)";
 }
 
@@ -18,8 +35,8 @@ function ShapBreakdown({ contributions }: { contributions: ShapContribution[] })
   const top = [...contributions].sort((a, b) => a.rank - b.rank).slice(0, 6);
   const max = Math.max(...top.map((c) => Math.abs(c.shap_value)), 0.0001);
   return (
-    <div className="space-y-1.5 bg-[var(--surface-deep)] px-5 py-3.5">
-      <div className="mb-1.5 text-[10.5px] font-medium uppercase tracking-[0.1em] text-[var(--muted)]">
+    <div className="space-y-1.5 bg-[var(--surface-soft)] px-5 py-3.5">
+      <div className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted)]">
         Why at-risk — top SHAP drivers
       </div>
       {top.map((c) => {
@@ -33,7 +50,7 @@ function ShapBreakdown({ contributions }: { contributions: ShapContribution[] })
             <span className="truncate font-mono text-[11px] text-[var(--fg-soft)]">
               {c.feature}
             </span>
-            <div className="relative h-2 rounded-full bg-white/[0.04]">
+            <div className="relative h-2 rounded-full bg-[var(--surface-mute)]">
               <div
                 className="absolute bottom-0 top-0 w-px bg-[var(--line-strong)]"
                 style={{ left: "50%" }}
@@ -42,14 +59,14 @@ function ShapBreakdown({ contributions }: { contributions: ShapContribution[] })
                 className="absolute bottom-0 top-0 rounded-full"
                 style={{
                   width: `${width}%`,
-                  background: pos ? "oklch(0.7 0.16 30)" : "var(--accent-2)",
+                  background: pos ? "var(--risk)" : "var(--accent-2)",
                   ...(pos ? { left: "50%" } : { right: "50%" }),
                 }}
               />
             </div>
             <span
               className="text-right font-mono text-[11px] tabular-nums"
-              style={{ color: pos ? "oklch(0.76 0.15 35)" : "var(--accent-2)" }}
+              style={{ color: pos ? "var(--risk)" : "var(--accent-2)" }}
             >
               {pos ? "+" : ""}
               {c.shap_value.toFixed(2)}
@@ -73,7 +90,6 @@ export function AtRiskTable({
   threshold: number;
   shap?: ShapCustomer[];
 }) {
-  const [filter, setFilter] = useState("all");
   const [expanded, setExpanded] = useState<string | null>(null);
 
   if (!predictions) return <Skeleton className="h-72 w-full" />;
@@ -91,39 +107,16 @@ export function AtRiskTable({
       icon={<Bell size={14} />}
       pad={false}
       right={
-        <>
-          <Button
-            variant="ghost"
-            size="sm"
-            leftIcon={<Download size={12} />}
-            onClick={() => downloadCsv("at-risk-customers.csv", rows)}
-          >
-            Export
-          </Button>
-          {/* AI / LLM connector — wired later */}
-          <Button variant="primary" size="sm" leftIcon={<Mail size={12} />}>
-            Generate emails
-          </Button>
-        </>
+        <Button
+          variant="ghost"
+          size="sm"
+          leftIcon={<Download size={12} />}
+          onClick={() => downloadCsv("at-risk-customers.csv", rows)}
+        >
+          Export
+        </Button>
       }
     >
-      <div className="flex flex-wrap gap-1.5 border-b border-[var(--line)] px-5 pb-3 pt-1">
-        {SEGMENTS.map((s) => (
-          <button
-            key={s}
-            onClick={() => setFilter(s)}
-            className={cx(
-              "h-7 rounded-full border px-3 text-[11.5px] font-medium capitalize tracking-tight transition",
-              filter === s
-                ? "border-[var(--line-strong)] bg-white/[0.07] text-[var(--fg)]"
-                : "border-[var(--line)] bg-transparent text-[var(--muted)] hover:text-[var(--fg-soft)]",
-            )}
-          >
-            {s.replace("-", " ")}
-          </button>
-        ))}
-      </div>
-
       {rows.length === 0 ? (
         <div className="px-5 py-8 text-center text-[12.5px] text-[var(--muted)]">
           No predictions yet — run batch scoring.
@@ -133,10 +126,6 @@ export function AtRiskTable({
           <thead>
             <tr className="text-[10.5px] uppercase tracking-wide text-[var(--muted)]">
               <th className="px-5 py-2.5 text-left font-medium">Customer</th>
-              <th className="px-3 py-2.5 text-left font-medium">Segment</th>
-              <th className="px-3 py-2.5 text-right font-medium">LTV</th>
-              <th className="px-3 py-2.5 text-right font-medium">Last order</th>
-              <th className="px-3 py-2.5 text-left font-medium">State</th>
               <th className="px-3 py-2.5 text-right font-medium">Risk</th>
               <th className="w-8 px-5 py-2.5" />
             </tr>
@@ -154,37 +143,33 @@ export function AtRiskTable({
                     }
                     className={cx(
                       "border-t border-[var(--line)]",
-                      contributions && "cursor-pointer hover:bg-white/[0.02]",
+                      contributions && "cursor-pointer hover:bg-[var(--surface-soft)]",
                     )}
                   >
                     <td className="px-5 py-2.5">
                       <div className="flex items-center gap-2.5">
-                        <div className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-gradient-to-br from-zinc-700 to-zinc-900 font-mono text-[10px] font-semibold text-zinc-300">
-                          {r.customer_unique_id.slice(0, 2).toUpperCase()}
+                        <div className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-[var(--surface-mute)] font-mono text-[10px] font-semibold text-[var(--fg-soft)]">
+                          {(r.display_name ?? r.customer_unique_id)
+                            .split(" ")
+                            .slice(0, 2)
+                            .map((s) => s[0])
+                            .join("")
+                            .slice(0, 2)
+                            .toUpperCase()}
                         </div>
                         <div>
-                          <div className="font-mono text-[11.5px] text-[var(--fg)]">
-                            {r.customer_unique_id.slice(0, 14)}…
+                          <div className="text-[12.5px] font-medium text-[var(--fg)]">
+                            {r.display_name ?? `Customer ${r.customer_unique_id.slice(0, 8).toUpperCase()}`}
                           </div>
                           <div className="font-mono text-[10.5px] text-[var(--muted)]">
-                            Olist customer
+                            {r.customer_unique_id.slice(0, 14)}…
                           </div>
                         </div>
                       </div>
                     </td>
-                    <td className="px-3 py-2.5">
-                      <Pill tone="neutral">—</Pill>
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-mono tabular-nums text-[var(--muted)]">
-                      —
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-mono tabular-nums text-[var(--muted)]">
-                      —
-                    </td>
-                    <td className="px-3 py-2.5 font-mono text-[var(--muted)]">—</td>
                     <td className="px-3 py-2.5 text-right">
                       <div className="inline-flex items-center gap-2">
-                        <div className="h-1 w-14 overflow-hidden rounded-full bg-white/[0.05]">
+                        <div className="h-1 w-24 overflow-hidden rounded-full bg-[var(--surface-mute)]">
                           <div
                             className="h-full rounded-full"
                             style={{
@@ -212,7 +197,7 @@ export function AtRiskTable({
                   </tr>
                   {open && contributions && (
                     <tr>
-                      <td colSpan={7} className="p-0">
+                      <td colSpan={3} className="p-0">
                         <ShapBreakdown contributions={contributions} />
                       </td>
                     </tr>
@@ -268,7 +253,7 @@ export function RecentRunsCard({ runs }: { runs?: RunRecord[] }) {
             {runs.map((r) => (
               <tr
                 key={r.id}
-                className="border-t border-[var(--line)] hover:bg-white/[0.02]"
+                className="border-t border-[var(--line)] hover:bg-[var(--surface-soft)]"
               >
                 <td className="px-5 py-2.5">
                   <div className="flex items-center gap-2">
@@ -288,6 +273,227 @@ export function RecentRunsCard({ runs }: { runs?: RunRecord[] }) {
                   {r.duration_s}s
                 </td>
                 <td className="px-5 py-2.5 text-[var(--muted)]">{r.detail}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Card>
+  );
+}
+
+// ─── Recent runs — dynamic card grid (Runs page) ─────────────────────────
+const RUN_KINDS: Record<string, { label: string; icon: LucideIcon }> = {
+  rebuild: { label: "dbt rebuild", icon: GitBranch },
+  pipeline: { label: "Full pipeline", icon: Play },
+  score: { label: "Batch scoring", icon: Zap },
+};
+
+// "2h ago" / "3d ago" — relative time from an ISO timestamp.
+function relTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return iso;
+  const s = Math.max(0, (Date.now() - then) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+export function RunCardGrid({ runs }: { runs?: RunRecord[] }) {
+  if (!runs)
+    return (
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {[0, 1, 2].map((i) => (
+          <Skeleton key={i} className="h-36 w-full" />
+        ))}
+      </div>
+    );
+
+  if (runs.length === 0)
+    return (
+      <Card title="Recent runs" icon={<Clock size={14} />}>
+        <div className="py-10 text-center text-[12.5px] text-[var(--muted)]">
+          No runs yet — trigger a rebuild or batch scoring.
+        </div>
+      </Card>
+    );
+
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {runs.map((r) => {
+        const meta = RUN_KINDS[r.kind] ?? { label: r.kind, icon: Activity };
+        const Icon = meta.icon;
+        const ok = r.status === "success";
+        return (
+          <section
+            key={r.id}
+            className="flex flex-col gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 shadow-[0_1px_2px_rgba(28,26,23,0.04)] transition-colors hover:border-[var(--line-strong)]"
+          >
+            <div className="flex items-center gap-2.5">
+              <span
+                className={cx(
+                  "grid h-8 w-8 shrink-0 place-items-center rounded-lg border",
+                  ok
+                    ? "border-[color-mix(in_oklch,var(--ok)_28%,transparent)] bg-[var(--ok-bg)] text-[var(--ok)]"
+                    : "border-[color-mix(in_oklch,var(--risk)_28%,transparent)] bg-[var(--risk-bg)] text-[var(--risk)]",
+                )}
+              >
+                <Icon size={15} />
+              </span>
+              <div className="min-w-0">
+                <div className="truncate text-[12.5px] font-semibold tracking-tight text-[var(--fg)]">
+                  {meta.label}
+                </div>
+                <div className="text-[10.5px] text-[var(--muted)]">
+                  {relTime(r.started_at)}
+                </div>
+              </div>
+              <Pill tone={ok ? "success" : "danger"} dot className="ml-auto">
+                {r.status}
+              </Pill>
+            </div>
+
+            <p className="min-h-[34px] text-[12px] leading-relaxed text-[var(--fg-soft)]">
+              {r.detail}
+            </p>
+
+            <div className="mt-auto flex items-center justify-between border-t border-[var(--line)] pt-2.5 text-[10.5px] text-[var(--muted)]">
+              <span className="font-mono">{r.id}</span>
+              <span className="font-mono tabular-nums">{r.duration_s}s</span>
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function tierTone(tier: string) {
+  return tier === "crit"
+    ? "danger"
+    : tier === "high"
+      ? "warn"
+      : tier === "med"
+        ? "accent"
+        : "neutral";
+}
+
+function emailRelTime(iso: string | null): string {
+  if (!iso) return "—";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return iso;
+  const s = Math.max(0, (Date.now() - then) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+export function EmailOutreachCard() {
+  const [emails, setEmails] = useState<GeneratedEmail[]>();
+  const [total, setTotal] = useState(0);
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    api
+      .emails(20)
+      .then((d) => {
+        setEmails(d.emails);
+        setTotal(d.total);
+      })
+      .catch((e) => setError(String(e)));
+  }, []);
+
+  return (
+    <Card
+      title="Email outreach"
+      subtitle={
+        total > 0
+          ? `${total.toLocaleString()} retention emails generated · serving.generated_emails`
+          : "LLM-drafted retention emails — populated by the pipeline's email step"
+      }
+      icon={<Mail size={14} />}
+      pad={false}
+    >
+      {error ? (
+        <div className="px-5 py-8 text-center text-[12.5px] text-[var(--risk)]">
+          {error}
+        </div>
+      ) : !emails ? (
+        <div className="p-5">
+          <Skeleton className="h-32 w-full" />
+        </div>
+      ) : emails.length === 0 ? (
+        <div className="py-10 text-center">
+          <p className="mx-auto max-w-md text-[12.5px] leading-relaxed text-[var(--muted)]">
+            No emails have been generated yet. Run the pipeline with{" "}
+            <span className="font-medium text-[var(--fg-soft)]">
+              Generate retention emails
+            </span>{" "}
+            enabled and drafts will land here.
+          </p>
+        </div>
+      ) : (
+        <table className="w-full text-[12.5px]">
+          <thead>
+            <tr className="text-[10.5px] uppercase tracking-wide text-[var(--muted)]">
+              <th className="px-5 py-2.5 text-left font-medium">Customer</th>
+              <th className="px-3 py-2.5 text-left font-medium">Risk</th>
+              <th className="px-3 py-2.5 text-left font-medium">Subject</th>
+              <th className="px-3 py-2.5 text-left font-medium">Model</th>
+              <th className="px-3 py-2.5 text-left font-medium">Judge</th>
+              <th className="px-5 py-2.5 text-right font-medium">Generated</th>
+            </tr>
+          </thead>
+          <tbody>
+            {emails.map((e) => (
+              <tr
+                key={e.id}
+                className="border-t border-[var(--line)] hover:bg-[var(--surface-soft)]"
+              >
+                <td className="px-5 py-2.5">
+                  <div className="text-[12px] font-medium text-[var(--fg)]">
+                    {e.display_name}
+                  </div>
+                  <div className="font-mono text-[10.5px] text-[var(--muted)]">
+                    {e.customer_unique_id?.slice(0, 12) ?? "—"}…
+                  </div>
+                </td>
+                <td className="px-3 py-2.5">
+                  <Pill tone={tierTone(e.risk_tier)}>
+                    {e.churn_probability != null
+                      ? `${(e.churn_probability * 100).toFixed(0)}%`
+                      : e.risk_tier}
+                  </Pill>
+                </td>
+                <td className="max-w-[320px] truncate px-3 py-2.5 text-[var(--fg-soft)]">
+                  {e.subject || "—"}
+                </td>
+                <td className="px-3 py-2.5 font-mono text-[11px] text-[var(--muted)]">
+                  {e.model ?? "—"}
+                </td>
+                <td className="px-3 py-2.5">
+                  {e.judge_score != null ? (
+                    <span
+                      className={cx(
+                        "font-mono text-[11.5px] font-semibold tabular-nums",
+                        e.judge_passed
+                          ? "text-[var(--ok)]"
+                          : "text-[var(--warn)]",
+                      )}
+                    >
+                      {e.judge_score.toFixed(1)} / 10
+                    </span>
+                  ) : (
+                    <span className="font-mono text-[11px] text-[var(--muted)]">
+                      not graded
+                    </span>
+                  )}
+                </td>
+                <td className="px-5 py-2.5 text-right font-mono text-[11px] text-[var(--muted)]">
+                  {emailRelTime(e.generated_at)}
+                </td>
               </tr>
             ))}
           </tbody>

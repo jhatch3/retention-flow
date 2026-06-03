@@ -27,7 +27,7 @@ email_status = postgresql.ENUM(
     name="email_status", schema="serving", create_type=False,
 )
 evaluator = postgresql.ENUM(
-    "distilbert", "llm_judge",
+    "llm_judge",
     name="evaluator", schema="serving", create_type=False,
 )
 

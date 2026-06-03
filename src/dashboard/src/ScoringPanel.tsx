@@ -7,8 +7,8 @@ import { Button, Card, KvItem } from "./ui";
 import { RiskHistogram } from "./charts";
 
 function lineColor(stage: string): string {
-  if (stage === "done") return "text-emerald-300";
-  if (stage === "error") return "text-rose-300";
+  if (stage === "done") return "text-[var(--ok)]";
+  if (stage === "error") return "text-[var(--risk)]";
   if (stage === "score") return "text-[var(--fg-soft)]";
   return "text-[var(--muted)]";
 }
@@ -28,18 +28,29 @@ export function ScoringPanel({
   const [progress, setProgress] = useState(0);
   const [log, setLog] = useState<ScoreEvent[]>([]);
   const logRef = useRef<HTMLDivElement>(null);
+  const esRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [log]);
+
+  // Close any open stream when the panel unmounts (navigating away mid-run)
+  // so the connection and its setState calls don't leak.
+  useEffect(() => () => esRef.current?.close(), []);
 
   function run() {
     setRunning(true);
     setProgress(0);
     setLog([]);
     const es = new EventSource("/api/score/stream");
+    esRef.current = es;
     es.onmessage = (e) => {
-      const evt: ScoreEvent = JSON.parse(e.data);
+      let evt: ScoreEvent;
+      try {
+        evt = JSON.parse(e.data);
+      } catch {
+        return; // ignore a malformed frame rather than throwing in the handler
+      }
       setLog((l) => [...l, evt]);
       setProgress(evt.progress);
       if (evt.done) {
@@ -83,7 +94,7 @@ export function ScoringPanel({
         {/* Left — progress + log */}
         <div>
           <div className="mb-2.5 flex items-center gap-3">
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/[0.04]">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--surface-mute)]">
               <div
                 className="h-full bg-[var(--accent)] transition-all duration-300"
                 style={{ width: `${progress * 100}%` }}
@@ -96,7 +107,7 @@ export function ScoringPanel({
 
           <div
             ref={logRef}
-            className="h-44 overflow-auto rounded-lg border border-[var(--line)] bg-[var(--surface-deep)] p-3 font-mono text-[11.5px] leading-relaxed"
+            className="h-44 overflow-auto rounded-lg border border-[var(--line)] bg-[var(--surface-soft)] p-3 font-mono text-[11.5px] leading-relaxed"
           >
             {log.length === 0 ? (
               <div className="text-[var(--muted)]">

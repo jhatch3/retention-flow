@@ -15,8 +15,8 @@ dist/
 # Data (Olist CSVs and processed Parquet are not committed)
 data/
 
-# MLflow
-logs/mlruns/
+# MLflow (a tracking store can land at ./mlruns or logs/mlruns)
+mlruns/
 *.db
 
 # Dagster (local runtime / temp home)

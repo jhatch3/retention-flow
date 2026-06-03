@@ -1,27 +1,28 @@
 // Overview cards: KPI row, churn hero, pipeline, warehouse, model registry,
-// feature importance.
-import { useMemo, useState } from "react";
+// SHAP attribution.
 import { Boxes, Database, ExternalLink, GitBranch, Sparkles } from "lucide-react";
 import type {
-  FeatureImportance,
   ModelRegistry,
   PipelineStatus,
   Predictions,
   ShapData,
   WarehouseData,
 } from "./api";
-import { Button, Card, Delta, Kpi, MetricCell, Pill, Skeleton, Stat2 } from "./ui";
+import { Button, Card, Kpi, MetricCell, Pill, Skeleton, Stat2 } from "./ui";
 import {
-  ChurnTimeSeries,
   FeatureImportanceList,
   ModelPerfChart,
+  RiskHistogram,
   SegmentChurn,
 } from "./charts";
-import { churnSeries, cx, openExternal, sparkline } from "./lib";
+import { cx, openExternal } from "./lib";
 
 const m3 = (x?: number | null) => (x != null ? x.toFixed(3) : "—");
 
 // ─── KPI row ─────────────────────────────────────────────────────────────
+// Values come straight from /api/data and /api/models — no synthetic
+// deltas or sparklines. KPI history isn't yet captured in the warehouse;
+// once it is, wire it back into these cards via real time-series.
 export function KpiRow({
   data,
   models,
@@ -32,30 +33,24 @@ export function KpiRow({
   pipeline?: PipelineStatus;
 }) {
   const cm = models?.champion_metrics;
+  const testsPass = pipeline?.tests?.pass ?? 0;
+  const testsWarn = pipeline?.tests?.warn ?? 0;
+  const testsFail = pipeline?.tests?.fail ?? 0;
   return (
     <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
       <Kpi
         label="Customers in gold"
         value={data ? data.gold_rows.toLocaleString() : "—"}
-        delta={2.1}
-        sparkData={sparkline(1, 1.5)}
         footnote="analytics.customer_features"
       />
       <Kpi
         label="Churn rate (180d)"
         value={data ? `${(data.gold_churn_rate * 100).toFixed(1)}%` : "—"}
-        delta={-1.4}
-        positiveIsGood={false}
-        sparkData={sparkline(2, -1)}
-        sparkColor="oklch(0.78 0.14 60)"
-        footnote="vs. 30d trailing baseline"
+        footnote="future-window label, augmented training set"
       />
       <Kpi
         label="Champion ROC-AUC"
         value={m3(cm?.roc_auc)}
-        delta={0.7}
-        sparkData={sparkline(3, 1)}
-        sparkColor="oklch(0.78 0.14 145)"
         footnote={
           models?.champion_version
             ? `churn-xgboost · v${models.champion_version}`
@@ -66,22 +61,19 @@ export function KpiRow({
         label="dbt tests"
         value={
           pipeline?.available
-            ? `${pipeline.tests?.pass ?? 0}/${pipeline.tests_total}`
+            ? `${testsPass}/${pipeline.tests_total}`
             : "—"
         }
-        delta={0}
-        deltaSuffix=""
-        sparkData={sparkline(4, 0.5)}
-        sparkColor="oklch(0.78 0.14 145)"
-        footnote={`${pipeline?.tests?.warn ?? 0} warning · 0 failing`}
+        footnote={`${testsWarn} warning · ${testsFail} failing`}
       />
     </div>
   );
 }
 
-// ─── Hero churn chart ────────────────────────────────────────────────────
-const RANGES: Record<string, number> = { "7d": -7, "30d": -30, "90d": -90, "12m": -90 };
-
+// ─── Hero churn snapshot ─────────────────────────────────────────────────
+// Real data only: gold rows + champion decision threshold + the live risk
+// histogram from serving.predictions. No synthetic time series — once a
+// churn-rate history is materialised in the warehouse it can land here.
 export function ChurnHero({
   data,
   models,
@@ -91,60 +83,37 @@ export function ChurnHero({
   models?: ModelRegistry;
   predictions?: Predictions;
 }) {
-  const [range, setRange] = useState("30d");
-  const full = useMemo(
-    () => (data ? churnSeries(data.gold_churn_rate, data.gold_rows) : []),
-    [data],
-  );
   if (!data) return <Skeleton className="h-[420px] w-full" />;
 
-  const series = full.slice(RANGES[range]);
-  const latest = series[series.length - 1];
-  const first = series[0];
-  const delta = first ? ((latest.rate - first.rate) / first.rate) * 100 : 0;
   const champion = models?.versions.find((v) => v.is_champion);
-  const threshold = champion?.decision_threshold ?? "—";
+  const threshold = champion?.decision_threshold
+    ? Number(champion.decision_threshold)
+    : 0.33;
+  const churnPct = data.gold_churn_rate * 100;
+  const scoredAt = predictions?.scored_at
+    ? new Date(predictions.scored_at).toLocaleString()
+    : "never";
 
   return (
     <Card
       title="Customer churn"
-      subtitle="180-day observation horizon · scored nightly"
+      subtitle="180-day observation horizon · scored on demand"
       className="h-full"
       pad={false}
-      right={
-        <div className="flex items-center gap-1 rounded-lg border border-[var(--line)] bg-white/[0.02] p-0.5">
-          {Object.keys(RANGES).map((r) => (
-            <button
-              key={r}
-              onClick={() => setRange(r)}
-              className={cx(
-                "rounded-md px-2 py-0.5 font-mono text-[11px] transition",
-                range === r
-                  ? "bg-white/[0.07] text-[var(--fg)]"
-                  : "text-[var(--muted)] hover:text-[var(--fg-soft)]",
-              )}
-            >
-              {r}
-            </button>
-          ))}
-        </div>
-      }
     >
       <div className="flex flex-wrap items-end gap-8 px-5 pt-4">
         <div>
-          <div className="text-[10.5px] font-medium uppercase tracking-[0.1em] text-[var(--muted)]">
-            Current
+          <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted)]">
+            Gold churn rate
           </div>
           <div className="mt-1 flex items-baseline gap-2">
             <span className="text-[32px] font-semibold leading-none tracking-tight tabular-nums text-[var(--fg)]">
-              {(latest.rate * 100).toFixed(1)}
+              {churnPct.toFixed(1)}
               <span className="text-[var(--muted)]">%</span>
             </span>
-            <Delta value={delta} positiveIsGood={false} />
           </div>
           <div className="mt-1 font-mono text-[11px] text-[var(--muted)]">
-            {latest.predicted_churn.toLocaleString()} predicted churners of{" "}
-            {latest.scored.toLocaleString()}
+            {data.gold_rows.toLocaleString()} customers · augmented training set
           </div>
         </div>
         <div className="h-10 w-px bg-[var(--line)]" />
@@ -165,15 +134,33 @@ export function ChurnHero({
           }
           mono
         />
-        <Stat2 label="Threshold" value={String(threshold)} mono />
+        <Stat2 label="Threshold" value={threshold.toFixed(2)} mono />
         <Stat2
           label="Last scored"
-          value={predictions?.scored ? "recent" : "never"}
+          value={predictions?.scored ? scoredAt : "never"}
           muted
         />
       </div>
-      <div className="px-2 pb-4 pt-4">
-        <ChurnTimeSeries data={series} />
+      <div className="px-5 pb-4 pt-5">
+        <div className="mb-2 flex items-baseline justify-between">
+          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted)]">
+            Risk distribution · serving.predictions
+          </span>
+          <span className="font-mono text-[10.5px] text-[var(--muted)]">
+            threshold {threshold.toFixed(2)} → above flagged
+          </span>
+        </div>
+        {predictions?.scored && predictions.risk_histogram?.length ? (
+          <RiskHistogram
+            data={predictions.risk_histogram}
+            threshold={threshold}
+            height={220}
+          />
+        ) : (
+          <div className="grid h-[220px] place-items-center text-[12.5px] text-[var(--muted)]">
+            Run batch scoring to populate the distribution.
+          </div>
+        )}
       </div>
     </Card>
   );
@@ -246,16 +233,16 @@ export function PipelineCard({ pipeline }: { pipeline?: PipelineStatus }) {
               {items!.map((m) => (
                 <div
                   key={m.name}
-                  className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-white/[0.025]"
+                  className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-[var(--surface-soft)]"
                 >
                   <span
                     className={cx(
                       "h-1.5 w-1.5 shrink-0 rounded-full",
                       m.status === "success"
-                        ? "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.4)]"
+                        ? "bg-[var(--ok)]"
                         : m.status === "warning"
-                          ? "bg-amber-400"
-                          : "bg-rose-400",
+                          ? "bg-[var(--warn)]"
+                          : "bg-[var(--risk)]",
                     )}
                   />
                   <span className="flex-1 truncate font-mono text-[11.5px] text-[var(--fg-soft)]">
@@ -278,7 +265,7 @@ export function PipelineCard({ pipeline }: { pipeline?: PipelineStatus }) {
 }
 
 // ─── Warehouse card ──────────────────────────────────────────────────────
-const SPLIT_COLORS = ["var(--accent)", "var(--accent-2)", "oklch(0.5 0.04 260)"];
+const SPLIT_COLORS = ["var(--accent)", "var(--accent-2)", "var(--info)"];
 
 export function WarehouseCard({ data }: { data?: WarehouseData }) {
   if (!data) return <Skeleton className="h-[440px] w-full" />;
@@ -305,7 +292,7 @@ export function WarehouseCard({ data }: { data?: WarehouseData }) {
           </span>
           <span className="font-mono text-[10.5px] text-[var(--muted)]">70 / 15 / 15</span>
         </div>
-        <div className="flex h-2.5 w-full overflow-hidden rounded-full border border-[var(--line)] bg-white/[0.02]">
+        <div className="flex h-2.5 w-full overflow-hidden rounded-full border border-[var(--line)] bg-[var(--surface-soft)]">
           {splits.map(([name, v], i) => (
             <div
               key={name}
@@ -402,7 +389,7 @@ export function ModelRegistryCard({ models }: { models?: ModelRegistry }) {
           <div className="overflow-hidden rounded-lg border border-[var(--line)]">
             <table className="w-full text-[12px]">
               <thead>
-                <tr className="bg-white/[0.02] text-[10.5px] uppercase tracking-wide text-[var(--muted)]">
+                <tr className="bg-[var(--surface-soft)] text-[10.5px] uppercase tracking-wide text-[var(--muted)]">
                   <th className="px-3 py-2 text-left font-medium">Version</th>
                   <th className="px-3 py-2 text-right font-medium">ROC</th>
                   <th className="px-3 py-2 text-right font-medium">Thresh.</th>
@@ -413,7 +400,7 @@ export function ModelRegistryCard({ models }: { models?: ModelRegistry }) {
                 {models.versions.map((v) => (
                   <tr
                     key={v.version}
-                    className="border-t border-[var(--line)] hover:bg-white/[0.02]"
+                    className="border-t border-[var(--line)] hover:bg-[var(--surface-soft)]"
                   >
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-2">
@@ -438,7 +425,7 @@ export function ModelRegistryCard({ models }: { models?: ModelRegistry }) {
                       <span
                         className={cx(
                           "font-mono text-[11px]",
-                          v.is_champion ? "text-emerald-300" : "text-[var(--muted)]",
+                          v.is_champion ? "text-[var(--ok)]" : "text-[var(--muted)]",
                         )}
                       >
                         {v.is_champion ? "Production" : "Archived"}
@@ -455,7 +442,7 @@ export function ModelRegistryCard({ models }: { models?: ModelRegistry }) {
   );
 }
 
-// ─── Feature importance card ─────────────────────────────────────────────
+// ─── SHAP attribution card ────────────────────────────────────────────────
 export function ShapCard({ shap }: { shap?: ShapData }) {
   return (
     <Card
@@ -476,28 +463,6 @@ export function ShapCard({ shap }: { shap?: ShapData }) {
             importance: f.mean_abs_shap,
           }))}
         />
-      )}
-    </Card>
-  );
-}
-
-export function FeatureImportanceCard({
-  fi,
-  championVersion,
-}: {
-  fi?: FeatureImportance;
-  championVersion?: string | null;
-}) {
-  return (
-    <Card
-      title="Feature importance"
-      subtitle={`Champion · v${championVersion ?? "—"} · gain`}
-      icon={<Sparkles size={14} />}
-    >
-      {fi ? (
-        <FeatureImportanceList features={fi.features} />
-      ) : (
-        <Skeleton className="h-72 w-full" />
       )}
     </Card>
   );

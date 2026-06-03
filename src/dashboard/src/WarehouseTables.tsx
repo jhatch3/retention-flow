@@ -35,7 +35,7 @@ function cell(v: WarehouseValue): { text: string; cls: string } {
   if (typeof v === "boolean")
     return {
       text: String(v),
-      cls: v ? "text-emerald-300" : "text-rose-300",
+      cls: v ? "text-[var(--ok)]" : "text-[var(--risk)]",
     };
   if (typeof v === "number") {
     const text = Number.isInteger(v)
@@ -56,7 +56,7 @@ function DataGrid({
 }) {
   if (sample.error)
     return (
-      <div className="px-5 py-8 text-center text-[12.5px] text-rose-300">
+      <div className="px-5 py-8 text-center text-[12.5px] text-[var(--risk)]">
         {sample.error}
       </div>
     );
@@ -78,14 +78,14 @@ function DataGrid({
       <table className="w-full border-collapse text-[11.5px]">
         <thead>
           <tr className="text-[10px] uppercase tracking-wide text-[var(--muted)]">
-            <th className="sticky left-0 top-0 z-30 bg-[var(--surface-strong)] px-3 py-2 text-right font-medium">
+            <th className="sticky left-0 top-0 z-30 bg-[var(--surface-soft)] px-3 py-2 text-right font-medium">
               #
             </th>
             {sample.columns.map((c, i) => (
               <th
                 key={c}
                 className={cx(
-                  "sticky top-0 z-20 whitespace-nowrap bg-[var(--surface-strong)] px-3 py-2 font-medium",
+                  "sticky top-0 z-20 whitespace-nowrap bg-[var(--surface-soft)] px-3 py-2 font-medium",
                   numeric[i] ? "text-right" : "text-left",
                 )}
               >
@@ -98,7 +98,7 @@ function DataGrid({
           {sample.rows.map((row, ri) => (
             <tr
               key={ri}
-              className="border-t border-[var(--line)] transition-colors hover:bg-white/[0.03]"
+              className="border-t border-[var(--line)] transition-colors hover:bg-[var(--surface-soft)]"
             >
               <td className="sticky left-0 z-10 bg-[var(--surface)] px-3 py-1.5 text-right font-mono text-[10.5px] tabular-nums text-[var(--muted)]">
                 {ri + 1}
@@ -137,7 +137,7 @@ function ExpandedTable({
 }) {
   const [sample, setSample] = useState<WarehouseSample>();
   const [closing, setClosing] = useState(false);
-  const timer = useRef<number>();
+  const timer = useRef<number | undefined>(undefined);
 
   // Animate out, then unmount.
   function requestClose() {
@@ -172,7 +172,7 @@ function ExpandedTable({
     <div
       onClick={requestClose}
       className={cx(
-        "fixed inset-0 z-50 grid place-items-stretch bg-black/65 p-4 backdrop-blur-sm sm:p-8",
+        "fixed inset-0 z-50 grid place-items-stretch bg-[var(--fg)]/30 p-4 backdrop-blur-sm sm:p-8",
         closing ? "wh-backdrop-out" : "wh-fade",
       )}
     >
@@ -201,7 +201,7 @@ function ExpandedTable({
           </Pill>
           <button
             onClick={requestClose}
-            className="rounded-md p-1 text-[var(--muted)] transition-colors hover:bg-white/[0.06] hover:text-[var(--fg)]"
+            className="rounded-md p-1 text-[var(--muted)] transition-colors hover:bg-[var(--surface-mute)] hover:text-[var(--fg)]"
           >
             <X size={16} />
           </button>
@@ -258,7 +258,7 @@ function TableCard({ table, index }: { table: WarehouseTable; index: number }) {
   return (
     <>
       <section
-        className="wh-rise overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[0_1px_0_rgba(255,255,255,0.03)_inset,0_1px_2px_rgba(0,0,0,0.4)] transition-colors hover:border-[var(--line-strong)]"
+        className="wh-rise overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[0_1px_2px_rgba(28,26,23,0.04)] transition-colors hover:border-[var(--line-strong)]"
         style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}
       >
         <header className="flex items-center gap-2.5 border-b border-[var(--line)] px-5 py-3">
@@ -281,7 +281,7 @@ function TableCard({ table, index }: { table: WarehouseTable; index: number }) {
             <button
               onClick={() => setExpanded(true)}
               title="Expand to fullscreen"
-              className="grid h-7 w-7 place-items-center rounded-md border border-[var(--line)] text-[var(--muted)] transition-all duration-150 hover:scale-105 hover:border-[var(--line-strong)] hover:bg-white/[0.05] hover:text-[var(--fg)] active:scale-95"
+              className="grid h-7 w-7 place-items-center rounded-md border border-[var(--line)] text-[var(--muted)] transition-all duration-150 hover:scale-105 hover:border-[var(--line-strong)] hover:bg-[var(--surface-mute)] hover:text-[var(--fg)] active:scale-95"
             >
               <Maximize2 size={13} />
             </button>
@@ -327,7 +327,7 @@ export function WarehouseTables() {
   if (error)
     return (
       <Card title="Tables & views" icon={<Database size={14} />}>
-        <div className="flex items-center gap-2 text-[12.5px] text-rose-300">
+        <div className="flex items-center gap-2 text-[12.5px] text-[var(--risk)]">
           <AlertTriangle size={14} />
           {error} — could not reach the warehouse.
         </div>

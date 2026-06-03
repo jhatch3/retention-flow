@@ -1,9 +1,10 @@
 // High-fidelity SVG asset graph of the medallion pipeline — elevated service
 // cards (Railway-style), smooth connectors, live state from the
 // /api/pipeline/rebuild/stream events.
-import { Loader2, Play } from "lucide-react";
 import type { PipelineStatus, WarehouseData } from "./api";
-import { Button, Card } from "./ui";
+import { Card } from "./ui";
+import { RunPipelineControl } from "./RunPipelineControl";
+import type { PipelineOpts } from "./RunPipelineControl";
 import { cx } from "./lib";
 
 type NodeState = "idle" | "running" | "done" | "warn" | "error";
@@ -13,7 +14,7 @@ interface DagNode {
   label: string;
   col: number;
   row: number;
-  kind: "source" | "view" | "table" | "model";
+  kind: "source" | "view" | "table" | "model" | "ai";
 }
 
 const STAGING = [
@@ -31,6 +32,8 @@ const NODES: DagNode[] = [
   { id: "int_customer_orders", label: "int_customer_orders", col: 2, row: 0, kind: "view" },
   { id: "customer_features", label: "customer_features", col: 3, row: 0, kind: "table" },
   { id: "churn_model", label: "churn_model", col: 4, row: 0, kind: "model" },
+  { id: "retention_emails", label: "retention_emails", col: 5, row: 0, kind: "ai" },
+  { id: "eval_scores", label: "eval_scores", col: 6, row: 0, kind: "ai" },
 ];
 
 const EDGES: [string, string][] = [
@@ -38,18 +41,31 @@ const EDGES: [string, string][] = [
   ...STAGING.map((s): [string, string] => [s, "int_customer_orders"]),
   ["int_customer_orders", "customer_features"],
   ["customer_features", "churn_model"],
+  ["churn_model", "retention_emails"],
+  ["retention_emails", "eval_scores"],
 ];
 
-const COL_LABELS = ["Sources", "Staging · silver", "Intermediate", "Gold", "Model"];
+const COL_LABELS = [
+  "Sources",
+  "Staging · silver",
+  "Intermediate",
+  "Gold",
+  "Model",
+  "Emails · LLM",
+  "Judge · LLM",
+];
 
-const NODE_W = 200;
+// Slightly tighter nodes & columns so the 7-column chart fits the typical
+// pipeline-page width without clipping. The viewBox-scaling preserves the
+// proportional look across container sizes.
+const NODE_W = 178;
 const NODE_H = 56;
 const GAP = 22;
 const TOP = 50;
-const COL_DX = 272;
+const COL_DX = 232;
 const COL_X = COL_LABELS.map((_, i) => 18 + i * COL_DX);
 const SPAN = 6 * NODE_H + 5 * GAP;
-const VB_W = COL_X[4] + NODE_W + 18;
+const VB_W = COL_X[COL_LABELS.length - 1] + NODE_W + 18;
 const VB_H = TOP + SPAN + 16;
 
 function layout(): Record<string, { x: number; y: number }> {
@@ -73,19 +89,19 @@ const STATE: Record<NodeState, { accent: string; stroke: string; dot: string }> 
   idle: { accent: "var(--muted)", stroke: "var(--line)", dot: "var(--muted)" },
   running: { accent: "var(--accent)", stroke: "var(--accent)", dot: "var(--accent)" },
   done: {
-    accent: "oklch(0.74 0.15 150)",
-    stroke: "color-mix(in oklch, oklch(0.74 0.15 150) 50%, var(--line))",
-    dot: "oklch(0.74 0.15 150)",
+    accent: "var(--ok)",
+    stroke: "color-mix(in oklch, var(--ok) 45%, var(--line))",
+    dot: "var(--ok)",
   },
   warn: {
-    accent: "oklch(0.8 0.14 70)",
-    stroke: "color-mix(in oklch, oklch(0.8 0.14 70) 50%, var(--line))",
-    dot: "oklch(0.8 0.14 70)",
+    accent: "var(--warn)",
+    stroke: "color-mix(in oklch, var(--warn) 45%, var(--line))",
+    dot: "var(--warn)",
   },
   error: {
-    accent: "oklch(0.7 0.2 25)",
-    stroke: "color-mix(in oklch, oklch(0.7 0.2 25) 55%, var(--line))",
-    dot: "oklch(0.7 0.2 25)",
+    accent: "var(--risk)",
+    stroke: "color-mix(in oklch, var(--risk) 50%, var(--line))",
+    dot: "var(--risk)",
   },
 };
 
@@ -104,6 +120,11 @@ export function PipelineDag({
   championVersion,
   running,
   liveState,
+  emailsCount,
+  gradesCount,
+  judgeMeanScore,
+  opts,
+  onOpts,
   onRun,
 }: {
   pipeline?: PipelineStatus;
@@ -111,14 +132,32 @@ export function PipelineDag({
   championVersion?: string | null;
   running: boolean;
   liveState: Record<string, string>;
+  emailsCount?: number;
+  gradesCount?: number;
+  judgeMeanScore?: number;
+  opts: PipelineOpts;
+  onOpts: (o: PipelineOpts) => void;
   onRun: () => void;
 }) {
+  function aiCount(id: string): number {
+    if (id === "retention_emails") return emailsCount ?? 0;
+    if (id === "eval_scores") return gradesCount ?? 0;
+    return 0;
+  }
+
   function nodeState(node: DagNode): NodeState {
     if (node.kind === "source") return "done";
     if (node.kind === "model") {
       if (!running) return "done";
       const s = liveState[node.id];
       return s === "done" ? "done" : s === "running" ? "running" : "idle";
+    }
+    if (node.kind === "ai") {
+      if (running) {
+        const s = liveState[node.id];
+        return s === "done" ? "done" : s === "running" ? "running" : "idle";
+      }
+      return aiCount(node.id) > 0 ? "done" : "idle";
     }
     if (running) {
       const s = liveState[node.id];
@@ -135,9 +174,20 @@ export function PipelineDag({
 
   function meta(node: DagNode, st: NodeState): string {
     if (st === "running") return "running…";
-    if (st === "idle") return "queued";
     if (st === "error") return "failed";
     if (st === "warn") return "warning";
+    if (node.id === "retention_emails") {
+      const n = emailsCount ?? 0;
+      if (st === "idle") return n > 0 ? `${n} emails drafted` : "no drafts yet";
+      return `${n.toLocaleString()} drafts · serving.generated_emails`;
+    }
+    if (node.id === "eval_scores") {
+      const n = gradesCount ?? 0;
+      if (st === "idle") return n > 0 ? `${n} grades` : "no grades yet";
+      const tail = judgeMeanScore != null ? ` · mean ${judgeMeanScore.toFixed(1)}` : "";
+      return `${n.toLocaleString()} grades${tail}`;
+    }
+    if (st === "idle") return "queued";
     if (node.id === "database") {
       const syn = data ? `${Math.round(data.synthetic_orders / 1000)}K synthetic` : "synthetic";
       return `9 Olist tables + ${syn} orders`;
@@ -158,17 +208,13 @@ export function PipelineDag({
       title="Pipeline DAG"
       subtitle="medallion asset graph · live during a rebuild"
       right={
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={onRun}
-          disabled={running}
-          leftIcon={
-            running ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />
-          }
-        >
-          {running ? "Running…" : "Run pipeline"}
-        </Button>
+        <RunPipelineControl
+          opts={opts}
+          onOpts={onOpts}
+          onRun={onRun}
+          running={running}
+          compact
+        />
       }
     >
       <svg viewBox={`0 0 ${VB_W} ${VB_H}`} className="w-full" role="img">
@@ -185,7 +231,7 @@ export function PipelineDag({
             <path d="M0,1 L9,5 L0,9 z" fill="var(--line-strong)" />
           </marker>
           <filter id="dag-shadow" x="-20%" y="-30%" width="140%" height="170%">
-            <feDropShadow dx="0" dy="2" stdDeviation="3.5" floodColor="#000" floodOpacity="0.5" />
+            <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="#1c1a17" floodOpacity="0.08" />
           </filter>
         </defs>
 
@@ -212,7 +258,7 @@ export function PipelineDag({
               fill="none"
               stroke={
                 states[to] === "done"
-                  ? "color-mix(in oklch, oklch(0.74 0.15 150) 48%, transparent)"
+                  ? "color-mix(in oklch, var(--ok) 45%, transparent)"
                   : "var(--line-strong)"
               }
               strokeWidth={1.5}
@@ -237,7 +283,7 @@ export function PipelineDag({
                 width={NODE_W}
                 height={NODE_H}
                 rx={12}
-                fill="var(--surface-strong)"
+                fill="var(--surface)"
                 stroke={s.stroke}
                 strokeWidth={1.5}
                 filter="url(#dag-shadow)"

@@ -45,15 +45,19 @@ def _event(stage: str, message: str, progress: float, **extra) -> dict:
 
 
 def _persist_shap(
-    gold: pd.DataFrame, X: pd.DataFrame, shap: np.ndarray, proba: np.ndarray
+    conn, gold: pd.DataFrame, X: pd.DataFrame, shap: np.ndarray, proba: np.ndarray
 ) -> int:
-    """Persist per-feature SHAP rows for the top-N at-risk customers."""
-    with engine.connect() as conn:
-        idmap = dict(
-            conn.execute(
-                text(f"select customer_unique_id, id from {PREDICTIONS_TABLE}")
-            ).all()
-        )
+    """Persist per-feature SHAP rows for the top-N at-risk customers.
+
+    Runs on the caller's connection so it shares the predictions delete/insert
+    transaction: the idmap reads the just-inserted predictions and the SHAP
+    rows commit atomically with them.
+    """
+    idmap = dict(
+        conn.execute(
+            text(f"select customer_unique_id, id from {PREDICTIONS_TABLE}")
+        ).all()
+    )
 
     top = np.argsort(-proba)[:TOP_SHAP_CUSTOMERS]
     abs_shap = np.abs(shap)
@@ -75,7 +79,7 @@ def _persist_shap(
             })
     if rows:
         pd.DataFrame(rows).to_sql(
-            "shap_values", engine, schema="serving", if_exists="append", index=False
+            "shap_values", conn, schema="serving", if_exists="append", index=False
         )
     return len(rows)
 
@@ -139,12 +143,16 @@ def score_events() -> Iterator[dict]:
         "predicted_label": labels,
         "base_value": base_value,
     })
+    # Delete + reinsert predictions and SHAP in ONE transaction so a failure
+    # mid-write can't leave serving.predictions empty. Deleting predictions
+    # cascades to serving.shap_values (FK ON DELETE CASCADE), clearing stale
+    # rows rather than letting them accumulate/orphan across runs.
     with engine.begin() as conn:
         conn.execute(text(f"DELETE FROM {PREDICTIONS_TABLE}"))
-    predictions.to_sql(
-        "predictions", engine, schema="serving", if_exists="append", index=False
-    )
-    shap_rows = _persist_shap(gold, X, shap, proba)
+        predictions.to_sql(
+            "predictions", conn, schema="serving", if_exists="append", index=False
+        )
+        shap_rows = _persist_shap(conn, gold, X, shap, proba)
     _write_shap_summary(shap, base_value)
     yield _event(
         "write",
@@ -196,8 +204,11 @@ def predictions_overview() -> dict:
         )).mappings().all()
 
         top = conn.execute(text(
-            f"select customer_unique_id, churn_probability from {PREDICTIONS_TABLE} "
-            f"order by churn_probability desc limit 10"
+            f"select p.customer_unique_id, p.churn_probability, dn.display_name "
+            f"from {PREDICTIONS_TABLE} p "
+            f"left join serving.customer_display_names dn "
+            f"  on dn.customer_unique_id = p.customer_unique_id "
+            f"order by p.churn_probability desc limit 10"
         )).mappings().all()
 
     scored_at = summary["scored_at"]
@@ -214,6 +225,8 @@ def predictions_overview() -> dict:
         "top_at_risk": [
             {
                 "customer_unique_id": t["customer_unique_id"],
+                "display_name": t["display_name"]
+                or f"Customer {t['customer_unique_id'][:8].upper()}",
                 "churn_probability": round(float(t["churn_probability"]), 4),
             }
             for t in top

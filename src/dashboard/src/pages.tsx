@@ -1,7 +1,6 @@
 // Per-section pages — each composes the relevant cards behind a PageHeader.
 import { ExternalLink } from "lucide-react";
 import type {
-  FeatureImportance,
   ModelRegistry,
   PipelineStatus,
   Predictions,
@@ -9,19 +8,24 @@ import type {
   ShapData,
   WarehouseData,
 } from "./api";
+import type { PipelineOpts } from "./RunPipelineControl";
 import { PageHeader } from "./shell";
 import { Button, Card } from "./ui";
 import { openExternal } from "./lib";
 import {
   ChurnHero,
-  FeatureImportanceCard,
   KpiRow,
   ModelRegistryCard,
   PipelineCard,
   ShapCard,
   WarehouseCard,
 } from "./cards";
-import { AtRiskTable, RecentRunsCard } from "./tables";
+import {
+  AtRiskTable,
+  EmailOutreachCard,
+  RecentRunsCard,
+  RunCardGrid,
+} from "./tables";
 import { ScoringPanel } from "./ScoringPanel";
 import { PipelineDag } from "./PipelineDag";
 import { WarehouseTables } from "./WarehouseTables";
@@ -30,7 +34,6 @@ export function OverviewPage(p: {
   data?: WarehouseData;
   models?: ModelRegistry;
   pipeline?: PipelineStatus;
-  fi?: FeatureImportance;
   predictions?: Predictions;
   runs?: RunRecord[];
   shap?: ShapData;
@@ -72,13 +75,7 @@ export function OverviewPage(p: {
 
         <ModelRegistryCard models={p.models} />
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <WarehouseCard data={p.data} />
-          <FeatureImportanceCard
-            fi={p.fi}
-            championVersion={p.models?.champion_version}
-          />
-        </div>
+        <WarehouseCard data={p.data} />
 
         <ScoringPanel
           predictions={p.predictions}
@@ -108,6 +105,11 @@ export function PipelinePage({
   championVersion,
   running,
   liveState,
+  emailsCount,
+  gradesCount,
+  judgeMeanScore,
+  opts,
+  onOpts,
   onRun,
 }: {
   pipeline?: PipelineStatus;
@@ -115,6 +117,11 @@ export function PipelinePage({
   championVersion?: string | null;
   running: boolean;
   liveState: Record<string, string>;
+  emailsCount?: number;
+  gradesCount?: number;
+  judgeMeanScore?: number;
+  opts: PipelineOpts;
+  onOpts: (o: PipelineOpts) => void;
   onRun: () => void;
 }) {
   return (
@@ -122,7 +129,7 @@ export function PipelinePage({
       <PageHeader
         eyebrow="Workspace"
         title="Pipeline"
-        description="dbt medallion build — staging views and the gold customer-features table. The asset graph lights up live as a rebuild runs."
+        description="dbt medallion build → champion model → batch scoring → LLM-drafted retention emails → adversarial judge. Asset graph lights up live as the pipeline runs."
       />
       <div className="space-y-6">
         <PipelineDag
@@ -131,6 +138,11 @@ export function PipelinePage({
           championVersion={championVersion}
           running={running}
           liveState={liveState}
+          emailsCount={emailsCount}
+          gradesCount={gradesCount}
+          judgeMeanScore={judgeMeanScore}
+          opts={opts}
+          onOpts={onOpts}
           onRun={onRun}
         />
         <PipelineCard pipeline={pipeline} />
@@ -141,11 +153,9 @@ export function PipelinePage({
 
 export function ModelsPage({
   models,
-  fi,
   shap,
 }: {
   models?: ModelRegistry;
-  fi?: FeatureImportance;
   shap?: ShapData;
 }) {
   return (
@@ -153,14 +163,11 @@ export function ModelsPage({
       <PageHeader
         eyebrow="Workspace"
         title="Models"
-        description="MLflow registry — champion metrics, version history, feature importance, and SHAP attribution for the churn classifier."
+        description="MLflow registry — champion metrics, version history, and SHAP attribution for the churn classifier."
       />
       <div className="space-y-6">
         <ModelRegistryCard models={models} />
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <FeatureImportanceCard fi={fi} championVersion={models?.champion_version} />
-          <ShapCard shap={shap} />
-        </div>
+        <ShapCard shap={shap} />
       </div>
     </>
   );
@@ -190,7 +197,10 @@ export function RunsPage({ runs }: { runs?: RunRecord[] }) {
         title="Runs"
         description="History of pipeline rebuilds and batch-scoring runs triggered from the dashboard."
       />
-      <RecentRunsCard runs={runs} />
+      <div className="space-y-6">
+        <RunCardGrid runs={runs} />
+        <EmailOutreachCard />
+      </div>
     </>
   );
 }

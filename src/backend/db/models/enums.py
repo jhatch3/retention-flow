@@ -15,7 +15,6 @@ class EmailStatus(str, enum.Enum):
 
 
 class Evaluator(str, enum.Enum):
-    """Which tier of the two-tier eval framework produced a score."""
+    """Which evaluator produced an email-quality score."""
 
-    distilbert = "distilbert"
     llm_judge = "llm_judge"

@@ -211,6 +211,9 @@ def _queue_rows(threshold: float, limit: int) -> list[dict]:
                    model_version,
                    predicted_at
               FROM serving.predictions
+             -- The triage inbox shows the customers we've actually drafted an
+             -- email for, not the whole at-risk population.
+             WHERE id IN (SELECT prediction_id FROM serving.generated_emails)
              ORDER BY churn_probability DESC
              LIMIT :limit
         ),
